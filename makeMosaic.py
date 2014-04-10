@@ -10,7 +10,7 @@ class makeMosaic(object):
 	
 	def __init__(self,obs,mosaicConf):
 		"""
-		Generate mosaics of 'unabsorbed HI','HISA', and velocity integrated 'CO' (Wco)
+		Generate mosaics of 'unabsorbed HI','HISA'
 		"""
 		self.survey = obs.survey
 		self.mosaic = obs.mosaic
@@ -64,9 +64,11 @@ class makeMosaic(object):
 
 		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_line.fits'
 		checkForFiles(self.logger,[file],existence=True)
+		self.filename = file
 
-		self.logger.info("Open the file and get the data...")
-
+		self.logger.info("Getting the data from...")
+		self.logger.info("%s"%obs.filename)
+		
 		if not self.survey == 'CGPS':
 
 			self.mosaic = mosaicConf['mosaic']
@@ -82,8 +84,8 @@ class makeMosaic(object):
 			else:
 				z1 = float(z1)
 				z2 = float(z2)
-			z1_px = int(ceil(obs.z_px-1.+(z1-obs.z)/obs.dz))
-			z2_px = int(ceil(obs.z_px-1.+(z2-obs.z)/obs.dz))
+			z1_px = int(ceil(obs.pz-1.+(z1-obs.z)/obs.dz))
+			z2_px = int(ceil(obs.pz-1.+(z2-obs.z)/obs.dz))
 			
 			if lon == 'INDEF' and lat == 'INDEF':
 				lon = obs.x
@@ -186,7 +188,7 @@ class makeMosaic(object):
 		else:
 			
 			# Get emission data and velocity interval
-			Tb = obs.observation[:,:,:,:].astype(float32)
+			Tb = obs.observation[:,:,:,:]
 			dv = fabs(obs.dz/1000.) # [velocity] = km s-1
 			vel = obs.zarray/1000.
 			zmin = obs.zmin
@@ -196,31 +198,7 @@ class makeMosaic(object):
 			del obs.observation
 			del obs.zarray
 
-			if not self.species == 'CO':
-				
-				if self.species == 'HI':
-					# Data correction
-					# Using Multiprocessing if enough cpus are available
-					import multiprocessing
-					
-					ncpu = int(ceil(multiprocessing.cpu_count()/3))
-					
-					#samples_list = array_split(Tb[0,zmin:zmax,:,:], ncpu)
-					#self.logger.info("Running on %i cpu(s)"%(ncpu))
-					#pool = multiprocessing.Pool(processes=ncpu)
-					#results = pool.map(correct_data2, samples_list)
-					#Tb[0,obs.zmin:obs.zmax,:,:] = concatenate(results).astype(Tb.dtype)
-					
-					#del samples_list
-					#del results
-
-					# Get HI continuum data
-					pathc = getPath(self.logger, self.survey.lower()+'_hi_continuum')
-					continuum = pathc+self.survey+'_'+self.mosaic+'_1420_MHz_I_image.fits'
-					checkForFiles(self.logger,[continuum])
-					data, header = pyfits.getdata(continuum, 0, header = True)
-					
-					Tb[0,obs.zmin:obs.zmax,:,:] = correct_data2(Tb[0,zmin:zmax,:,:],data[0,0,:,:])
+			if not self.species == 'CO':					
 					
 				if self.species == 'HISA':
 					Tb = zeros(Tb.shape,dtype=float32)
@@ -247,43 +225,22 @@ class makeMosaic(object):
 						Tb[0,m,l,k] = fabs(nd)
 					elif self.species == 'HI':
 						Tb[0,m,l,k] = nc
-					elif self.species == 'HI+HISA':
-						Tb[0,m,l,k] = nc + fabs(nd)
+					#elif self.species == 'HI+HISA':
+					#	Tb[0,m,l,k] = nc + fabs(nd)
 				
-			elif self.species == 'CO':
-				
-				self.logger.info("Applying Moment Mask method (T.M.Dame)...")
-				T = Tb[0,:,:,:]
-				
-				# Calculate the rms for raw data
-				rms_t = getRMS(self.logger,T,zmax)
-				
-				# Degrading the resolution spatially and in velocity by a factor of 2
-				fwhm_spat = 2 #px
-				sig = fwhm_spat/sqrt(8*log(2))
-				Tsmooth = ndimage.gaussian_filter(T,sigma=(sig,sig,sig),order=(0,0,0))
-				
-				# Calculate the rms for smoothed data
-				rms_ts = getRMS(self.logger,Tsmooth,zmax)
-				
-				# Set the clipping level equal 5 times the rms noise in Tsmooth
-				Tclipping = 5*rms_ts
-				
-				# Generate a masking cube initially filled with zeros with the same dimensions as Tb
-				Mask = zeros(Tsmooth.shape)
-				
-				# Unmask the pixel with a value > Tclipping
-				index = where(Tsmooth>Tclipping)
-				Mask[index] = 1
-				
-				# Calculate the moment-masked cube
-				Tb[0,:,:,:] = Mask*T
-				
-				del T
-				del Mask
+			else:
+				self.logger.error("This function can be only applied to HI and HISA mosaics.")
 				
 			obs.keyword['datamin'] = amin(Tb)
 			obs.keyword['datamax'] = amax(Tb)
+
+			obs.keyword['minfil'] = unravel_index(argmin(Tb),Tb.shape)[1]
+			obs.keyword['mincol'] = unravel_index(argmin(Tb),Tb.shape)[2]
+			obs.keyword['minrow'] = unravel_index(argmin(Tb),Tb.shape)[3]
+			
+			obs.keyword['maxfil'] = unravel_index(argmax(Tb),Tb.shape)[1]
+			obs.keyword['maxcol'] = unravel_index(argmax(Tb),Tb.shape)[2]
+			obs.keyword['maxrow'] = unravel_index(argmax(Tb),Tb.shape)[3]
 			
 			#results = pyfits.CompImageHDU(Tb[0],obs.keyword,'image')
 			results = pyfits.PrimaryHDU(Tb,obs.keyword)

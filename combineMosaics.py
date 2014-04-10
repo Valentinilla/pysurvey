@@ -22,23 +22,30 @@ class combineMosaics(object):
 		flag1, flag2 = '',''
 		
 		if self.species == 'HI':
-			flag1 = 'HI_unabsorbed'
+			flag1 = 'HI_unabsorbed_column_density'
 		if self.species == 'CO':
-			flag1 = 'WCO'
+			flag1 = 'WCO_intensity_line'
 		
 		if dim == '2D':
-			flag2 = 'column_density'
+			flag2 = '2D'
 		elif dim == '3D':
 			flag2 = 'rings'
 		
 		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_CombineMosaics')
+
+		list = []
+		if self.species == 'HI':
+			list1 = ['MV1','MV2','MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
+			list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2','MH1','MH2']
+			list3 = ['MJ1','MJ2','MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
+			list = list1+list2+list3
+		if self.species == 'CO':
+			# The 20 CO-mosaics
+			list1 = ['MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
+			list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2']
+			list = list1+list2
 		
-		path = getPath(self.logger, key='list_mosaic')
-		mosaiclist = path+self.species+'_mosaic.list'
-		checkForFiles(self.logger,[mosaiclist])
-		input = open(mosaiclist,"r")
-		list = input.readlines()
-		first_mosaic = list[0].split('\n')[0]
+		first_mosaic = list[0]
 		n_msc = len(list)
 		sqrt_n_msc = sqrt(n_msc)
 		
@@ -51,21 +58,21 @@ class combineMosaics(object):
 		checkForFiles(self.logger,[ref_mosaic])
 		
 		f = pyfits.open(ref_mosaic)
-		hdu = f[0]
-		msc_size = hdu.header['NAXIS']	# 4
-		msc_x = hdu.header['NAXIS1']	# 1024
-		msc_y = hdu.header['NAXIS2']	# 1024
+		hdu1 = f[0]
+		msc_size = hdu1.header['NAXIS']	# 4
+		msc_x = hdu1.header['NAXIS1']	# 1024
+		msc_y = hdu1.header['NAXIS2']	# 1024
 		
 		if dim == '3D':
-			msc_z = hdu.header['NAXIS3']
-			#msc_rotz = hdu.keyword["crota3"]
+			msc_z = hdu1.header['NAXIS3']
+			#msc_rotz = hdu1.keyword["crota3"]
 		
-		msc_dx = float(hdu.header['CDELT1']) # -4.9e-3 deg
-		msc_rotx = float(hdu.header['CROTA1']) # 0.0
-		msc_dy = float(hdu.header['CDELT2']) # 4.9e-3 deg
-		msc_roty = float(hdu.header['CROTA2']) # 0.0
+		msc_dx = float(hdu1.header['CDELT1']) # -4.9e-3 deg
+		msc_rotx = float(hdu1.header['CROTA1']) # 0.0
+		msc_dy = float(hdu1.header['CDELT2']) # 4.9e-3 deg
+		msc_roty = float(hdu1.header['CROTA2']) # 0.0
 
-		msc_bunit = hdu.header['bunit']
+		msc_bunit = hdu1.header['bunit']
 
 		self.logger.info("Number of mosaics: %s"%n_msc)
 		
@@ -86,17 +93,17 @@ class combineMosaics(object):
 			num = re.findall(r'\d',hdu.header['object'])
 			if num[0] == '1': list1.append(hdu)
 			if num[0] == '2': list2.append(hdu)			
-						
+		
 		if self.species == 'HI':
-			overlap_lon_px = 224 # mosaics overlap by 1.12 deg = 224 px
-			overlap_lat_px = 224 #
+			overlap_lon_px = round(1.12/msc_dy) # mosaics overlap by 1.12 deg = 224 px
+			overlap_lat_px = round(1.12/msc_dy) # if dx = 0.005
 			# needed for indexes
 			odx = int(overlap_lon_px/2)
 			ody = int(overlap_lat_px/2)
 			
 		if self.species == 'CO':
-			overlap_lon_px = 224 # mosaics overlap by 1.12 deg = 224 px
-			overlap_lat_px = 224 #
+			overlap_lon_px = round(1.12/msc_dy) # mosaics overlap by 1.12 deg = 224 px
+			overlap_lat_px = round(1.12/msc_dy) #
 			# needed for indexes
 			odx = int(overlap_lon_px/2)
 			ody = int(overlap_lat_px/2)		
@@ -109,19 +116,39 @@ class combineMosaics(object):
 		if msc_size == 3:
 			nx = msc_x*(n_msc/2) - overlap_lon_px*((n_msc/2)-1)
 			ny = 2*msc_y - overlap_lat_px
-			nz = msc_z		
+			nz = msc_z
 			skymap = zeros((nz,ny,nx))
 
-		# Concatenate the lowest mosaics along the longitude axis 
-		# |o|o|o|o|... = |o|o|o|o|
-		# |x|x|x|x|... = |   x   |
-		c1 = concatenateMosaics(list1,dim,odx)
+		# Using Multiprocessing if enough cpus are available
+		#import multiprocessing
+		#import itertools
+		#ncpu = 2
+		#self.logger.info("Running on %i cpu(s)"%(ncpu))
+		#vec = [dim,odx,msc_x]
+		#samples_list = (list1,list2)
+		#pool = multiprocessing.Pool(processes=ncpu)
+		#c1,c2 = pool.map(concatenateMosaics, itertools.izip(samples_list, itertools.repeat(vec)))
+		#pool.close()
+		#pool.join()
+		#del samples_list
+		#del results
+		#exit(0)
+
+		vec = [dim,odx,msc_x]
+		if n_msc > 2:
+			# Concatenate the lowest mosaics along the longitude axis 
+			# |o|o|o|o|... = |o|o|o|o|
+			# |x|x|x|x|... = |   x   |
+			c1 = concatenateMosaics( (list1,vec) )
 		
-		# Concatenate the upmost mosaics along the latitude axis
-		# |x|x|x|x|... = |   x   |
-		# |x|x|x|x|... = |   x   |
-		c2 = concatenateMosaics(list2,dim,odx)
-			
+			# Concatenate the upmost mosaics along the latitude axis
+			# |x|x|x|x|... = |   x   |
+			# |x|x|x|x|... = |   x   |
+			c2 = concatenateMosaics( (list2,vec) )
+		else:
+			c1 = hdu1.data
+			c2 = hdu.data
+
 		# Concatenate the two raw of mosaics along the latitude axis
 		# |   x   |... = |   x   |
 		# |   x   |...   |       |
@@ -166,9 +193,9 @@ class combineMosaics(object):
 		newheader["cunit2"] = ("deg","Unit type")
 
 		if dim == '3D':
-			newheader["ctype3"] = ("Ring","Coordinate type")
-			newheader["crval3"] = (1,"Ring of reference pixel")
-			newheader["crpix3"] = (1,"Reference pixel of ring")
+			newheader["ctype3"] = ("Rband","Coordinate type")
+			newheader["crval3"] = (0,"Ring of reference pixel")
+			newheader["crpix3"] = (1.0,"Reference pixel of ring")
 			newheader["cdelt3"] = (1,"Ring increment")
 			#newheader["crota3"] = (msc_rotz,"Ring rotation")
 

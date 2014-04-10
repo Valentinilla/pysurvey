@@ -8,7 +8,11 @@ from Mosaic import *
 from makeMosaic import *
 from makeCorrection import *
 from combineMosaics import *
+from dsampleMosaic import *
 from testModule import *
+from spectralAnalysis import *
+from spatialAnalysis import *
+from cleanMosaic import *
 
 class Survey:
 	
@@ -104,6 +108,7 @@ class Survey:
 		writeConfig(self.logger, surveyDictionary=self.surveyConf,mosaicDictionary=self.mosaicConf,\
 		utilsDictionary=self.utilsConf,spectralDictionary=self.spectralConf,spatialDictionary=self.spatialConf)
 
+
 	def makeObs(self,type='brightness temperature'):
 		"""
 		Reads the header and gets the data
@@ -116,6 +121,28 @@ class Survey:
 			self.logger.critical("One or more needed files do not exist")
 			return
 
+	def cleanMosaic(self,scale_data=False):
+		"""
+		Access mosaic's attributes through self.clean
+		Input parameters: 
+			species = 'HI'(default), 'CO'
+			scale   = True (write scaled data in FITS file), False (do not scale data)
+		"""
+		try:
+			self.mosaic
+ 		except AttributeError:
+			#self.logger.critical("Obs object does not exist. Create it first with the 'makeObs' function.")
+			self.logger.critical("Mosaic object does not exist. Create it first with the 'loadMosaic' function.")
+			return
+
+		try:
+			self.clean = cleanMosaic(self.mosaic,scale_data)
+			self.logger.info(self.ret.subn(', ',str(self.clean))[0])
+
+		except(FileNotFound):
+			self.logger.critical("One or more needed files do not exist")
+			return
+
 	def generateMosaic(self,species='HI'):
 		"""
 		Generate CGPS-like mosaic. 
@@ -124,14 +151,14 @@ class Survey:
 		Access mosaic's attributes through self.msc
 		"""
 		try:
-			self.obs
-			self.obs.species = species
+			self.mosaic
+			self.mosaic.species = species
  		except AttributeError:
-			self.logger.critical("Obs object does not exist. Create it first with the makeObs function.")
+			self.logger.critical("Obs object does not exist. Create it first with the 'makeObs' function.")
 			return
 
 		try:
-			self.msc = makeMosaic(self.obs,self.mosaicConf)
+			self.msc = makeMosaic(self.mosaic,self.mosaicConf)
 			self.logger.info(self.ret.subn(', ',str(self.msc))[0])
 			self.flag_existance = True
 
@@ -140,26 +167,73 @@ class Survey:
 			return
 
 
-	def loadMosaic(self,species='HI',type='brightness temperature'):
+	#def loadMosaic(self,species='HI',type='brightness temperature'):
+	def loadMosaic(self,species='HI',type='brightness temperature',datatype='original'):
 		"""
 		Load a mosaic.
 		Input parameters: 
-			- species = 'HI'(default),'HISA'(only for CGPS),'HI+HISA'(only for CGPS column density),
+			- species  = 'HI'(default),'HISA'(only for CGPS),'HI+HISA'(only for CGPS column density),
 				    'CO' (Wco) (only for CGPS)
 			- type     = 'brightness temperature'(defualt),'column density'
+			- datatype = 'original' (default),'clean' (after applying data-clean methods, see cleanMosaic)
+			- load     = True, False (original survey mosaic)
 		Access mosaic's attributes through self.mosaic
 		"""
 		try:
-			if self.flag_existance:
-				del self.msc
-				self.logger.info("Free memory")
+			#if self.flag_existance:
+			#	del self.msc
+			#	self.logger.info("Free memory")
 			
-			self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,load=True)
+			self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,datatype)
+			#self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,load=True)
 			self.logger.info(self.ret.subn(', ',str(self.mosaic))[0])
 			
 		except(FileNotFound):
 			self.logger.critical("One or more needed files do not exist")
 			return
+
+	def downSampleMosaic(self,scale=1):
+		"""
+		Access mosaic's attributes through self.lowres
+		Input parameters: 
+			species = 'HI'(default), 'CO'
+			scale   = True (write scaled data in FITS file), False (do not scale data)
+		"""
+		try:
+			self.mosaic
+ 		except AttributeError:
+			#self.logger.critical("Obs object does not exist. Create it first with the 'makeObs' function.")
+			self.logger.critical("Mosaic object does not exist. Create it first with the 'loadMosaic' function.")
+			return
+
+		try:
+			self.lowres = dsampleMosaic(self.mosaic,scale)
+			self.logger.info(self.ret.subn(', ',str(self.lowres))[0])
+
+		except(FileNotFound):
+			self.logger.critical("One or more needed files do not exist")
+			return
+
+
+	# It needs to be implemented
+	def spectralSearch(self):
+		"""
+		Access mosaic's attributes through self.spec
+		"""
+		try:
+			self.mosaic
+ 		except AttributeError:
+			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the 'loadMap' function.")
+			return
+
+		try:
+			self.spec = spectralAnalysis(self.mosaic,self.spectralConf)
+			self.logger.info(self.ret.subn(', ',str(self.spec))[0])
+
+		except(FileNotFound):
+			self.logger.critical("One or more needed files do not exist")
+			return
+
 
 	def getColumnDensity(self,species='HI'):
 		"""
@@ -171,7 +245,7 @@ class Survey:
 			self.mosaic
 			self.mosaic.newspec = species
  		except AttributeError:
-			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the loadMap function.")
+			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the 'loadMap' function.")
 			return
 		try:
 			self.coldens = makeCorrection(self.mosaic,self.mosaicConf,self.utilsConf)
@@ -186,7 +260,7 @@ class Survey:
 			self.mosaic
 			self.mosaic.newspec = species
  		except AttributeError:
-			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the loadMap function.")
+			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the 'loadMap' function.")
 			return
 		try:
 			self.galprop = makeAnnuli(self.mosaic,self.mosaicConf,self.utilsConf)
@@ -243,7 +317,7 @@ class Survey:
 			self.mosaic
 			self.mosaic.newspec = species
  		except AttributeError:
-			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the loadMap function.")
+			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the 'loadMap' function.")
 			return
 		try:
 			self.test = testModule(self.mosaic,self.mosaicConf,self.utilsConf)

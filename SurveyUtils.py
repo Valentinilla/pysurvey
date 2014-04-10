@@ -268,12 +268,45 @@ def spatialAverage1D(array,i,j,n_spec): #7px
 #################################################
 #	START MAP CORRECTIONS
 #################################################
-# CO corrections: Moment Masking Routins - Dame et al.
-def getRMS(surveyLogger,T,zmax):
+# CO corrections
+def moment_mask(surveyLogger,T,zmax):
+	'''
+	CO correction: Moment Mask method (T.M.Dame)
+	'''
+	# Calculate the rms for raw data
+	rms_t = getRMS(surveyLogger,T,zmax)
 	
-	sigma_array = zeros(3,dtype=float)
+	# Degrading the resolution spatially and in velocity by a factor of 2
+	fwhm_spat = 2 #px
+	sig = fwhm_spat/sqrt(8*log(2))
+	Tsmooth = ndimage.gaussian_filter(T,sigma=(sig,sig,sig),order=(0,0,0))
+	
+	# Calculate the rms for smoothed data
+	rms_ts = getRMS(surveyLogger,Tsmooth,zmax)
+	
+	# Set the clipping level equal 5 times the rms noise in Tsmooth
+	Tclipping = 5*rms_ts
+	
+	# Generate a masking cube initially filled with zeros with the same dimensions as Tb
+	Mask = zeros(Tsmooth.shape)
+	
+	# Unmask the pixel with a value > Tclipping
+	index = where(Tsmooth>Tclipping)
+	Mask[index] = 1
+	
+	# Calculate the moment-masked cube
+	T[:,:,:] = Mask*T
+					
+	return T
+
+
+def getRMS(surveyLogger,T,zmax):
+	'''
+	CO correction: get root mean square
+	'''
 	# Compute the standard deviation along the specified axis:
 	# std = sqrt(mean(abs(x - x.mean())**2))
+	sigma_array = zeros(3,dtype=float)
 	sigma_array[0] = sqrt(mean(T[zmax-15,:,:]**2))#std(T[235,:,:])
 	sigma_array[1] = sqrt(mean(T[zmax-10,:,:]**2))#std(T[240,:,:])
 	sigma_array[2] = sqrt(mean(T[zmax-5,:,:]**2))#std(T[245,:,:])
@@ -283,7 +316,11 @@ def getRMS(surveyLogger,T,zmax):
 	return rms
 
 
-def correct_data2(T,data,rms=4):
+# HI correction
+def correct_continuum( (T,data) ):
+	'''
+	HI correction: remove continuum subtraction artifacts
+	'''
 
 	nz = T.shape[0]
 	ny = T.shape[1]
@@ -294,7 +331,7 @@ def correct_data2(T,data,rms=4):
 	from sklearn.mixture import GMM
 	classif = GMM(n_components=2)
 	classif.fit(data.reshape((data.size, 1)))
-	print classif.means_
+	#print classif.means_
 	threshold = mean(classif.means_)
 	#print threshold
 	
@@ -305,31 +342,28 @@ def correct_data2(T,data,rms=4):
 	data_slices = ndimage.find_objects(coded_regions)
 	region = [coord for coord in data_slices]
 	del data_slices
-	print num_regions
-	
-	import matplotlib.pyplot as plt
-	plt.figure()
-	#n,bins,patches = plt.hist(data.flatten(),100,normed=1,facecolor='green',alpha=0.75,log=True)
-	#plt.axvline(threshold, color='r', ls='--', lw=2)	
-	#plt.contour(mask,6)#, [0.5], colors='r', linewidths=2)
-	#plt.imshow(filled, cmap=plt.cm.gray)
-	#plt.axis('off')
-	#plt.show()
-	#exit(0)
-	
-	for z in xrange(40,nz):
+	#print num_regions
+		
+	for z in xrange(nz):
 		
 		slice = T[z,:,:]		
-		# loop over each region
+		# loop over each region of the continuum
 		for x in region:
 			a,b = (max(x[0].start-1,0),min(x[0].stop+1,ny-1))
 			c,d = (max(x[1].start-1,0),min(x[1].stop+1,nx-1))
 			
+			# Source in the continuum data file
 			source = data[a:b,c:d]
+		
+			# Do not consider structure larger than 80 px
+			if max(source.shape[0],source.shape[1]) > 80:
+				continue
+			
+			# Mean value of the line data file at the source location 
 			test = mean(slice[a:b,c:d])
 			
-			lx = fabs(c-d)+5
-			ly = fabs(a-b)+5
+			lx = fabs(c-d)-1
+			ly = fabs(a-b)-1
 
 			x31 = c-lx
 			x32 = d-lx
@@ -342,73 +376,55 @@ def correct_data2(T,data,rms=4):
 			y22 = b+ly
 
 			# correct if outside the boundaries
-			if x31 < 0: x31 = 0
-			if x32 > nx: x32 = nx
-			if x41 < 0: x41 = 0
-			if x42 > nx: y42 = nx
+			x31,x32 = check_boundaries(x31,x32,nx)
+			x41,x42 = check_boundaries(x41,x42,nx)
 
-			if y11 < 0: y11 = 0
-			if y12 > ny: y12 = ny
-			if y21 < 0: y21 = 0
-			if y22 > ny: y22 = ny
+			y11,y12 = check_boundaries(y11,y12,ny)
+			y21,y22 = check_boundaries(y21,y22,ny)
 			
+			# Test-regions in the line data file around the source
+			# match two arrays if zonei is smaller than source
 			zone1 = slice[y11:y12,c:d]
 			zone2 = slice[y21:y22,c:d]
 			zone3 = slice[a:b,x31:x32]
 			zone4 = slice[a:b,x41:x42]
 
-			mzone1 = mean(slice[a-ly:b-ly,c:d])
-			mzone2 = mean(slice[a+ly:b+ly,c:d])
-			mzone3 = mean(slice[a:b,c-lx:d-lx])
-			mzone4 = mean(slice[a:b,c+lx:d+lx])
+			max_val = max(mean(zone1),mean(zone2),mean(zone3),mean(zone4))
+			min_val = min(mean(zone1),mean(zone2),mean(zone3),mean(zone4))
 
-			max_val = max(mzone1,mzone2,mzone3,mzone4)
-			min_val = min(mzone1,mzone2,mzone3,mzone4)
+			zone1 = match_arrays(source,zone1)
+			zone2 = match_arrays(source,zone2)
+			zone3 = match_arrays(source,zone3)
+			zone4 = match_arrays(source,zone4)
 			
-			#if test <= (1.5*max_val) and test >= (1.5*min_val):
-			#	print "OK"
-			
-			if test > (1.5*max_val) or test < (1.5*min_val):
-				T[z,a:b,c:d] = (zone1+zone2+zone3+zone4)/4
+			# weights depending on how many non-zero elements are in a region
+			w1 = float(len(where(zone1 != 0.)[0]))/(zone1.shape[0]*zone1.shape[1])
+			w2 = float(len(where(zone2 != 0.)[0]))/(zone2.shape[0]*zone2.shape[1])
+			w3 = float(len(where(zone3 != 0.)[0]))/(zone3.shape[0]*zone3.shape[1])
+			w4 = float(len(where(zone4 != 0.)[0]))/(zone4.shape[0]*zone4.shape[1])
 
-			#ERROR:
-			#T[z,a:b,c:d] = (zone1+zone2+zone3+zone4)/4
-			#ValueError: operands could not be broadcast together with shapes (7,7) (7,0)			
-
-			#plt.imshow(T[z,a:b,c:d], cmap=plt.cm.gray)
-			#plt.imshow(source, cmap=plt.cm.gray)
-			#plt.contour(source, 2, colors='g', linewidths=1)
-			#plt.show()
-			#exit(0)
+			if test > (2.*max_val) or test < (2.*min_val):
+				T[z,a:b,c:d] = (w1*zone1+w2*zone2+w3*zone3+w4*zone4)/(w1+w2+w3+w4)
 
 	return T
 
-def nearest_neighbors(xarray,yarray):
-	
-	deltax = x - reshape(x,len(x),1) # compute all possible combination
-	deltay = y - reshape(y,len(y),1) # 
-	dist = sqrt(deltax**2+deltay**2)
-	dist = dist + identity(len(x))*dist.max() # eliminate self matching
-	# dist is the matrix of distances from one coordinate to any other
-	return dist
-
 # HI corrections
 def correct_data(T,rms=4):
-	
+	'''
+	HI correction: smooth negative pixels
+	'''
 	# Setting up thresholds
-	threshold1 = 0    # select negative elements
-	threshold2 = -rms # root mean square
+	threshold = -rms # root mean square
 	
 	nz = T.shape[0]
 	ny = T.shape[1]
 	nx = T.shape[2]
 	#print nx,ny,nz
-	
-	for z in xrange(nz):
+
+	for z in xrange(nz):	
+		slice = T[z,:,:]
 		
-		data = T[z,:,:]
-		
-		mask = data < threshold1
+		mask = slice < threshold
 		filled = ndimage.morphology.binary_fill_holes(mask)
 		coded_regions, num_regions = ndimage.label(filled)
 		del filled
@@ -422,57 +438,49 @@ def correct_data(T,rms=4):
 			a,b = (max(x[0].start-1,0),min(x[0].stop+1,ny-1))
 			c,d = (max(x[1].start-1,0),min(x[1].stop+1,nx-1))
 			
-			area = data[a:b,c:d]
-			
-			y = area.shape[0]
-			x = area.shape[1]
-						
-			idx = where(area < threshold2)
-			cnt = size(idx[0])
-			
-			# define a region to be used for the mean (consider only 1x1 nearest neighbors)
-			reg = zeros((3,3))
-			
-			# loop over each pixel < threshold2
-			for k in xrange(cnt):
-				j = idx[0][k]
-				i = idx[1][k]
-				
-				x1 = i-1
-				x2 = i+1
-				y1 = j-1
-				y2 = j+1
-				
-				# correct if outside the boundaries
-				if x1 < 0: x1 = i
-				if x2 > x: x2 = x
-				if y1 < 0: y1 = j
-				if y2 > y: y2 = y
-				
-				# mask entries < threshold2
-				mask = area[y1:y2+1,x1:x2+1] < threshold2
-				# if all entries are masked, unmask [j,i]
-				flag = False 
-				if mask.all() == True:
-					mask[j,i] = False
-					flag = True
-				# masked entries are ignored
-				reg = ma.array(area[y1:y2+1,x1:x2+1], mask = mask)
-				# calculate the mean where entries > threshold2
-				if flag == True:
-					area[j,i] = reg[j,i]/fabs(threshold2)
-				else:
-					area[j,i] = reg.mean()
-				
-			data[a:b,c:d] = area
-			del area
-			del reg
+			area = slice[a:b,c:d]
 
-		T[z,:,:] = data
-		del data
-
+			#T[z,a:b,c:d] = ndimage.median_filter(area,(3,3))
+			fwhm_spat = 3 #px
+			sig = fwhm_spat/sqrt(8*log(2))
+			T[z,a:b,c:d] = ndimage.gaussian_filter(area,sigma=(sig,sig),order=(0,0))
+				
 	return T
 	
+def check_boundaries(x1,x2,n):
+	
+	# correct if outside the boundaries
+	if x1 < 0: x1 = 0
+	if x1 > n:
+		x1 = n-1
+		x2 = n
+	
+	if x2 > n: x2 = n
+	if x2 < 0:
+		x1 = 0
+		x2 = 1
+	
+	return int(x1),int(x2)
+
+def match_arrays(a,b):
+
+	if b.shape != a.shape:
+		dummy = zeros(a.shape)
+		dummy[:b.shape[0],:b.shape[1]] += b
+		return dummy
+	else:
+		return b
+
+
+def nearest_neighbors(xarray,yarray):
+	
+	deltax = x - reshape(x,len(x),1) # compute all possible combination
+	deltay = y - reshape(y,len(y),1) # 
+	dist = sqrt(deltax**2+deltay**2)
+	dist = dist + identity(len(x))*dist.max() # eliminate self matching
+	# dist is the matrix of distances from one coordinate to any other
+	return dist
+
 #################################################
 #	END MAP CORRECTIONS
 #################################################
@@ -509,8 +517,7 @@ def rotation_curve( (T,vec) ):
 	del vec
 	
 	# Array to store results
-	cubemap = zeros((annuli,nlat,nlon),dtype=float)			
-	#NHI = zeros((annuli,nlat,nlon),dtype=float)
+	cubemap = zeros((annuli,nlat,nlon),dtype=float32)
 
 	# Read in SPH model results
 	# Get Bissantz's data
@@ -631,6 +638,7 @@ def rotation_curve( (T,vec) ):
 	for l in xrange(0,nlon):
 		glo_deg = lon[l]
 		#surveyLogger.info("%i) longitude: %.3f"%(l,lon[l]))
+		#print "%i) longitude: %.3f"%(l,lon[l])
 		if (abs(glo_deg) < 165.):
 			glon = radians(glo_deg)
 			pmean = r_sun*cos(glon)
@@ -731,7 +739,6 @@ def rotation_curve( (T,vec) ):
 				spec = T[:,b,l]
 				spec[0] = 0.
 				spec[nvel-1] = 0.
-					
 				rspec = fftconvolve(spec,lim,'same')
 				#plotFunc(vel,spec,rspec)
 					
@@ -856,6 +863,7 @@ def rotation_curve( (T,vec) ):
 							for a in xrange(annuli):
 								if(r_proj[k] >= rmin[a]) and (r_proj[k] < rmax[a]):
 									cubemap[a,b,l] += wga*amp*sigma_line*C
+									#print cnt1
 								if (r_proj[k] > 50.):
 									print "Distance > 50. kpc! (%.2f)"%r_proj[k]
 						elif species == 'CO':
@@ -999,9 +1007,15 @@ def get_ampHISA(survey,mosaic,r,ivmax,Tmax):#,utilsConf):
 #################################################
 # START COMBINE 
 #################################################
-def concatenateMosaics(list,dim,dx):
+def concatenateMosaics( (list,vec) ):
 	# Concatenate mosaics along the longitude axis
+	dim = vec[0]
+	dx = vec[1]
+	msc_x = vec[2]
+	
 	index = 0
+	c = []
+	
 	for current, next in zip(list, list[1:]):
 		if index == 0:
 			if dim == '2D':
@@ -1019,7 +1033,8 @@ def concatenateMosaics(list,dim,dx):
 			if dim == '3D':
 				c = concatenate((c, next.data[:,:,dx:msc_x]), axis=2)
 		index += 1
-	return c
+	
+	return array(c)
 
 #################################################
 # END COMBINE 
@@ -1222,13 +1237,17 @@ def plotNvsTs(surveyLogger,obs,utilsConf,plot,lon,lat):
 class FileNotFound: pass
 class CommandNotFound: pass
 
+def setNaN2Zero(array):
+	array[isnan(array)] = 0.
+	return array
+
 def getPath(surveyLogger, key="cgps_hi"):
 
 	mode = "DESY"
 	#mode = "HOME"
+	#mode = "BATCH"
 
 	if mode == "DESY":
-
 		disk1 = "/afs/ifh.de/group/that"
 		disk2 = "/lustre/fs4/group/that/sf/Surveys"
 
@@ -1238,7 +1257,6 @@ def getPath(surveyLogger, key="cgps_hi"):
 		workdir = disk1+"/work-sf/survey"
 
 	elif mode == "HOME":
-
 		disk1 = "/Volumes/My Book/DESY"
 		disk2 = disk1+"/analysis/survey/results"
 
@@ -1246,6 +1264,16 @@ def getPath(surveyLogger, key="cgps_hi"):
 		result1 = data1+"/hisa"
 
 		workdir = disk1+"/analysis/survey"
+
+	elif mode == "BATCH":
+		disk1 = "."#"$TMPDIR"
+		disk2 = disk1+"/results"
+
+		data1 = disk1+"/data"
+		result1 = disk1+"/results"
+
+		workdir = disk1
+		
 
 	path = False
 	# Rot.Curve
@@ -1343,7 +1371,7 @@ def getPath(surveyLogger, key="cgps_hi"):
 		return data1+'/hi/CGPS/'
 	if key=="cgps_hi_continuum":
 		path = True
-		return data1+'/continum/cgps/'
+		return data1+'/continuum/cgps/'
 	if key=="cgps_hisa_dat":
 		path = True
 		return result1+'/cgps/results/'
@@ -1379,7 +1407,7 @@ def getPath(surveyLogger, key="cgps_hi"):
 		return data1+'/hi/SGPS/'
 	if key=="sgps_hi_continuum":
 		path = True
-		return data1+'/continum/sgps/'
+		return data1+'/continuum/sgps/'
 	if key=="sgps_hisa_dat":
 		path = True
 		return result1+'/sgps/results/'
@@ -1403,6 +1431,294 @@ def getPath(surveyLogger, key="cgps_hi"):
 	if(not path):
 		surveyLogger.critical("Path '%s' doesn't exist."%key)
 		raise FileNotFound
+
+def getFile(surveyLogger,survey,mosaic,species,type,datatype):
+
+	# Select the file according to Survey and Mosaic
+	path = ''
+	flag = ''
+	sur = (survey).lower()
+
+	# GALPROP
+	if survey == 'Galprop':
+		if species == 'HI':
+			if datatype == 'original':
+				path = getPath(surveyLogger, key=sur+'_hi')
+				mosaic = 'TOT'
+				flag = species+'_column_density_rbands_image'
+			elif datatype == '2D_col_density':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+				flag = species+'_column_density'
+			else:
+				typeErrorMsg(surveyLogger,type)
+		elif species == 'WCO':
+			if datatype == 'original':
+				path = getPath(surveyLogger, key=sur+'_co')
+				mosaic = 'TOT'
+				flag = species+'_rbands_image'
+			elif datatype == '3D_integrated_line':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_co')
+				flag = species+'_line_rings'
+			elif datatype == '2D_col_density':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_co_column_density')
+				flag = 'H2_column_density'
+			else:
+				typeErrorMsg(surveyLogger,type)
+		else:
+			surveyLogger.critical("Only HI and WCO species available for "+survey+" survey.")
+	
+	# LAB
+	elif survey == 'LAB':
+		if species == 'HI':
+			if datatype == 'original':
+				path = getPath(surveyLogger, key='lab_hi')
+				mosaic = 'TOT'
+				flag = species+'_line_image'
+			elif datatype == 'new': #glob_Tb:
+				path = getPath(surveyLogger, key='lustre_lab')
+				flag = species+'_line_image'
+			elif datatype == '2D_col_density':
+				path = getPath(surveyLogger, key='lustre_lab_hi_column_density')
+				flag = species+'_column_density'
+			else:
+				typeErrorMsg(surveyLogger,type)
+		else:
+				surveyLogger.critical("Only HI species available for "+survey+" survey.")
+	# DAME
+	elif survey == 'Dame':
+		if species == 'WCO':
+			if datatype == 'original':
+				path = getPath(surveyLogger, key='dame_co')
+				mosaic = 'TOT'
+				flag = species+'_line_image'
+			elif datatype == 'new':
+				path = getPath(surveyLogger, key='lustre_dame')
+				flag = species+'_line_image'
+			elif datatype == '2D_col_density':
+				path = getPath(surveyLogger, key='lustre_dame_co_column_density')
+				flag = 'H2_column_density'
+			else:
+				typeErrorMsg(surveyLogger,type)
+		else:
+			surveyLogger.critical("Only WCO species available for "+survey+" survey.")
+	
+	else:
+		if datatype == 'original':
+			if species == 'HI':
+				path = getPath(surveyLogger, key=sur+'_hi')
+			elif species == 'CO':
+				path = getPath(surveyLogger, key=sur+'_co')
+			flag = species+'_line_image'
+
+		elif datatype == 'clean':
+			if species == 'HI':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hi')
+			elif species == 'CO':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_co')
+			flag = species+'_line_image_clean'
+
+		elif datatype == '2D_col_density':
+			if species == 'HI':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+				flag = species+'_column_density'
+			elif species == 'CO':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_co_column_density')
+				flag = 'H2_column_density'
+			elif species == 'HISA':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hisa_column_density')
+				flag = species+'_column_density'
+			elif species == 'HI+HISA':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+				flag = species+'_column_density'
+			elif species == 'HI+CO':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+				flag = 'HI+H2_column_density'
+			elif species == 'HI+HISA+CO':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+				flag = 'HI+HISA+H2_column_density'
+
+		elif datatype == '3D_col_density':
+			if species == 'HI':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+				flag = species+'_unabsorbed_column_density_rings'
+			if species == 'HISA':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hisa_column_density')
+				flag = species+'_column_density_rings'
+
+		elif datatype == '3D_integrated_line':
+			if species == 'CO':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_co_column_density')
+				flag = 'WCO_line_rings'
+
+		elif datatype == 'processed':
+			if species == 'HI':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hi')
+				flag = species+'_unabsorbed_line'
+			elif species == 'HISA':				
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hisa')
+				flag = species+'_line'
+			elif species == 'CO':
+				surveyLogger.warning("For CO only datatype = original/clean.")
+				sys.exit(0)		
+				#path = getPath(surveyLogger, key='lustre_'+sur+'_co')
+				#flag = species+'_line'
+
+		elif datatype == 'lowres':
+			if species == 'HI':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hi')
+				flag = species+'_unabsorbed_line_lowres'
+			elif species == 'HISA':				
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hisa')
+				flag = species+'_line_lowres'
+			elif species == 'CO':				
+				path = getPath(surveyLogger, key='lustre_'+sur+'_co')
+				flag = species+'_line_lowres'
+			
+
+	return	path,flag,mosaic
+
+def getFile2(surveyLogger,survey,mosaic,species,type,load):
+	# Select the file according to Survey and Mosaic
+	path = ''
+	flag = ''
+	sur = (survey).lower()
+
+	if survey == 'Galprop':
+	# If Galprop
+		if species == 'HI':
+			if not load:
+				path = getPath(surveyLogger, key=sur+'_hi')
+				mosaic = 'TOT'
+				flag = species+'_column_density_rbands_image'
+			else:
+				if type == glob_N:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+					flag = species+'_column_density'
+				else:
+					typeErrorMsg(surveyLogger,type)
+		elif species == 'WCO':
+			if not load:
+				if type == glob_ITb:
+					path = getPath(surveyLogger, key=sur+'_co')
+					mosaic = 'TOT'
+					flag = species+'_rbands_image'
+				else:
+					typeErrorMsg(surveyLogger,type,species)
+			else:
+				if type == glob_ITb:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_co')
+					flag = species+'_line'
+				elif type == glob_N:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_co_column_density')
+					flag = species+'_column_density'
+				else:
+					typeErrorMsg(surveyLogger,type)
+		else:
+			surveyLogger.critical("Only HI and WCO species available for "+survey+" survey.")
+
+	elif survey == 'LAB':
+		# If LAB
+		if species == 'HI':
+			if not load:
+				path = getPath(surveyLogger, key='lab_hi')
+				mosaic = 'TOT'
+				flag = species+'_line_image'
+			else:
+				if type == glob_Tb:
+					path = getPath(surveyLogger, key='lustre_lab')
+					flag = species+'_line'
+				elif type == glob_N:
+					path = getPath(surveyLogger, key='lustre_lab_hi_column_density')
+					flag = species+'_column_density'
+				else:
+					typeErrorMsg(surveyLogger,type)
+		else:
+			surveyLogger.critical("Only HI species available for "+survey+" survey.")
+
+	elif survey == 'Dame':
+		# If Dame
+		if species == 'WCO':
+			if not load:
+				path = getPath(surveyLogger, key='dame_co')
+				if type == glob_ITb:
+					mosaic = 'TOT'
+					flag = species+'_line_image'
+			else:
+				if type == glob_ITb:
+					path = getPath(surveyLogger, key='lustre_dame')
+					flag = species+'_line'
+				elif type == glob_N:
+					path = getPath(surveyLogger, key='lustre_dame_co_column_density')
+					flag = species+'_column_density'
+				else:
+					typeErrorMsg(surveyLogger,type)
+		else:
+			surveyLogger.critical("Only WCO species available for "+survey+" survey.")
+
+	else:
+		if not load:
+			if species == 'HI':
+				path = getPath(surveyLogger, key=sur+'_hi')
+				if type == glob_Tb:
+					flag = species+'_line_image'
+			elif species == 'CO':
+				path = getPath(surveyLogger, key=sur+'_co')
+				if type == glob_Tb:
+					flag = species+'_line_image'
+		else:
+			if species == 'HI':
+				if type == glob_Tb:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_hi')
+					flag = species+'_unabsorbed_line'
+				elif type == glob_N:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+					flag = species+'_unabsorbed_column_density'
+				else:
+					typeErrorMsg(surveyLogger,type)
+
+			elif species == 'HISA':                            
+				if type == glob_Tb:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_hisa')
+					flag = species+'_line'
+				elif type == glob_N:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_hisa_column_density')
+					flag = species+'_column_density'
+				else:
+					typeErrorMsg(surveyLogger,type)
+
+			elif species == 'HI+HISA':
+				if type == glob_N:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+					flag = species+'_column_density'
+				else:
+					typeErrorMsg(surveyLogger,type,typeEntry=species)
+
+			elif species == 'CO':                              
+				if type == glob_Tb:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_co')
+					flag = 'CO_line'
+				elif type == glob_N:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_co_column_density')
+					flag = 'H2_column_density'
+				else:
+					typeErrorMsg(surveyLogger,type,typeEntry=species)
+
+			elif species == 'HI+CO':                          
+				if type == glob_N:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+					flag = 'HI+H2_column_density'
+ 				else:
+					typeErrorMsg(surveyLogger,type,typeEntry=species)
+
+			elif species == 'HI+HISA+CO':                              
+				if type == glob_N:
+					path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+					flag = 'HI+HISA+H2_column_density'
+				else:
+					typeErrorMsg(surveyLogger,type,typeEntry=species)
+	
+	return	path,flag,mosaic
+
 
 #--------------------------------
 # ERROR MSG FUNCTION

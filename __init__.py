@@ -8,4 +8,8 @@ from Mosaic import *
 from makeMosaic import *
 from makeCorrection import *
 from combineMosaics import *
+from dsampleMosaic import *
 from testModule import *
+from spatialAnalysis import *
+from spectralAnalysis import *
+from cleanMosaic import *

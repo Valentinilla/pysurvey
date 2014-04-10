@@ -7,7 +7,7 @@ from SurveyUtils import*
 
 class testModule(object):
 	
-	def __init__(self,mosaic,mosaicConf,utilsConf):
+	def __init__(self,mosaic,mosaicConf,utilsConf,scale_data=False):
 		"""
 		Calculate the column density in galacto-centric rings using the rotation curve of M. Phol et al.
 		Boundaries of galacto-centric annuli by M.Ackermann et al.
@@ -23,32 +23,31 @@ class testModule(object):
 		
 		if self.species == 'HI':
 			path = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
-			flag = 'HI_unabsorbed'
-			if sur == 'lab':
-				flag = 'HI'
+			flag = 'HI_unabsorbed_column_density'
 			units = '10e+20 H atoms cm-2'
 		elif self.species == 'HISA':
 			path = getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
-			flag = 'HISA'
+			flag = 'HISA_column_density'
 			units = '10e+20 H atoms cm-2'
 		elif self.species == 'CO':
 			path = getPath(self.logger,'lustre_'+sur+'_co_column_density')
-			flag = 'WCO'
+			flag = 'WCO_intensity_line'
 			units = 'K km s-1'
 		
 		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_rings.fits'
 		checkForFiles(self.logger,[file],existence=True)
-		print mosaic.filename
+		#print mosaic.filename
 		
 		self.logger.info("Open file and get data...")
 				
 		# Get HI emission data
 		Tb = mosaic.observation[0,:,:,:]
-		print amin(Tb),amax(Tb)
-		exit(0)
+		
 		lon = mosaic.xarray
 		lat = mosaic.yarray
+		
 		vel = mosaic.zarray/1000.
+		dv = fabs(mosaic.dz/1000.)		# [velocity] = km s-1
 		
 		nlon = mosaic.nx
 		nlat = mosaic.ny
@@ -61,13 +60,7 @@ class testModule(object):
 		del mosaic.zarray
 		
 		Ts = float(utilsConf['tspin'])	  	# [Excitation (or Spin) Temperature] = K (150)
-		Tbg = float(utilsConf['tcmb'])	  	# [Cosmic Microwave Background (CMB)] = K
-		if not self.species == 'WCO':
-			dv = fabs(mosaic.dz/1000.)	# [velocity] = km s-1
 		C = float(utilsConf['c'])	  	# [costant] = cm-2
-		
-		# Corrections for latitude (almost negligible)
-		cosdec = cos(radians(lat)) 		# [lat. correction] = rad
 
 		# Boundaries of Galactocentric Annuli - M.Ackermann et al
 		# (The Astrophysical Journal, 750:3-38, 2012)
@@ -75,12 +68,9 @@ class testModule(object):
 		rmin = [0.,1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.]
 		rmax = [1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.,50.]
 		#ann_boundaries = [ [i,rmin[i],rmax[i]] for i in xrange(annuli)]
-
 		
 		# Array to store results
-		cubemap = zeros((annuli,nlat,nlon),dtype=float)			
-		#NHI = zeros((annuli,nlat,nlon),dtype=float)
-		#ITb = zeros((annuli,nlat,nlon),dtype=float)	
+		cubemap = zeros((annuli,nlat,nlon),dtype=float32)
 		
 		self.logger.info("Initializing parameters...")
 		self.logger.info("1) Ts = %.2f K"%Ts)
@@ -93,22 +83,31 @@ class testModule(object):
 		
 		# Using Multiprocessing if enough cpus are available
 		import multiprocessing
-		import itertools
 		
-		ncpu = int(ceil(multiprocessing.cpu_count()/1))
+		ncpu = 8#int(ceil(multiprocessing.cpu_count()/1))
+		#print float(Tb.shape[1])/ncpu
+		
+		if Tb.shape[1] < ncpu:
+			ncpu = Tb.shape[1]
+		
 		self.logger.info("Running on %i cpu(s)"%(ncpu))
-		
-		samples_list = array_split(Tb, ncpu, axis = 1)
-		pool = multiprocessing.Pool(processes = ncpu)
-		results = pool.map(rotation_curve, itertools.izip(samples_list, itertools.repeat(list)))
-		
-		del samples_list[:]
-		del list[:]
-		
-		cubemap = concatenate(results,axis=1).astype(cubemap.dtype)
+		if ncpu > 1:
+			import itertools		
+			samples_list = array_split(Tb, ncpu, axis = 1)
+			pool = multiprocessing.Pool(processes = ncpu)
+			results = pool.map(rotation_curve, itertools.izip(samples_list, itertools.repeat(list)))
+			pool.close()
+			pool.join()
+			cubemap = concatenate(results,axis=1)
+			del samples_list
+			del list
+			del results
+		else:
+			cubemap = rotation_curve( (Tb,list) )
+			
 		if self.species == 'HI' or self.species == 'HISA':
-			cubemap = where(cubemap>0.,cubemap*1e-20,cubemap)
-		#cubemap = rotation_curve( (Tb,list) )
+			#cubemap = where(cubemap>0.,cubemap*1e-20,cubemap)
+			cubemap = cubemap*1e-20
 
 		# Store results
 		newheader = pyfits.Header()
@@ -126,20 +125,33 @@ class testModule(object):
 		newheader["crota2"] = (mosaic.keyword["crota2"],"Latitude rotation")
 		newheader["cunit2"] = ("deg","Unit type")
     		
-		newheader["ctype3"] = ("Ring","Coordinate type")
-		newheader["crval3"] = (1,"Ring of reference pixel")
-		newheader["crpix3"] = (1,"Reference pixel of ring")
+		newheader["ctype3"] = ("Rband","Coordinate type")
+		newheader["crval3"] = (0,"Ring of reference pixel")
+		newheader["crpix3"] = (1.0,"Reference pixel of ring")
 		newheader["cdelt3"] = (1,"Ring increment")
 		newheader["crota3"] = (mosaic.keyword["crota3"],"Ring rotation")
 		
 		newheader["bunit"] = (units,"Map units")
-		newheader["datamin"] = ("%e"%amin(cubemap),"Min value")
-		newheader["datamax"] = ("%e"%amax(cubemap),"Max value")
+		newheader["datamin"] = (amin(cubemap),"Min value")
+		newheader["datamax"] = (amax(cubemap),"Max value")
+
+		newheader['minfil'] = unravel_index(argmin(cubemap),cubemap.shape)[0]
+		newheader['mincol'] = unravel_index(argmin(cubemap),cubemap.shape)[1]
+		newheader['minrow'] = unravel_index(argmin(cubemap),cubemap.shape)[2]
+		newheader['maxfil'] = unravel_index(argmax(cubemap),cubemap.shape)[0]
+		newheader['maxcol'] = unravel_index(argmax(cubemap),cubemap.shape)[1]
+		newheader['maxrow'] = unravel_index(argmax(cubemap),cubemap.shape)[2]
+
 		newheader["object"] = ("Mosaic "+self.mosaic,self.survey+" Mosaic")
 		
+		# Output file
 		results = pyfits.PrimaryHDU(cubemap, newheader)
-    		#results.scale('int16', '', bscale=mosaic.bscale, bzero=mosaic.bzero)
-		
+		if scale_data:
+			self.logger.info("Write scaled data to a fits file in...")
+    			results.scale('int16', '', bscale=mosaic.bscale, bzero=mosaic.bzero)
+		else:
+			self.logger.info("Write data to a fits file in...")
+
 		# Create a Table with the annuli boundaries
 		col1 = pyfits.Column(name='Rmin', format='1E', unit='kpc', array=array(rmin))
 		col2 = pyfits.Column(name='Rmax', format='1E', unit='kpc', array=array(rmax))
@@ -149,8 +161,6 @@ class testModule(object):
 		
 		thdulist = pyfits.HDUList([results,tbl])
 		
-		# Output file
-		self.logger.info("Write data to a fits file in...")
 		thdulist.writeto(file, output_verify='fix')
 		self.logger.info("%s"%path)
 		self.logger.info("Done")
