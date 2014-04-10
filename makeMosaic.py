@@ -19,28 +19,20 @@ class makeMosaic(object):
 
 		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_GenerateMosaic')
 		path,flag = '',''
-		if self.survey == 'Galprop':
-			if self.species == 'HI':
-				path = getPath(self.logger, key="lustre_galprop_hi")
-				self.mosaic = mosaicConf['mosaic']
-				flag = 'HI'
-			if self.species == 'WCO':
-				path = getPath(self.logger, key="lustre_galprop_co")
-				self.mosaic = mosaicConf['mosaic']
-				flag = 'WCO'
-		elif self.survey == 'Dame':
+		
+		path = getPath(self.logger, key="lustre_%s_%s"%(self.survey.lower(),self.species.lower()))
+		if self.species == 'HI+HISA':
+			path = getPath(self.logger, key='lustre_'+self.survey.lower()+'_hi')
+		if self.survey == 'Galprop': 
+			self.mosaic = mosaicConf['mosaic']
+		if self.survey == 'Dame': 
 			path = getPath(self.logger, key="lustre_dame")
-			if self.species == 'WCO':
-				self.mosaic = mosaicConf['mosaic']
-				flag = 'WCO'
+			self.mosaic = mosaicConf['mosaic'] 
+		flag = self.species+'_line.fits'
+		if self.survey == 'LAB':
+			flag = self.species+'_line_image.fits'
 
-		else:
-			path = getPath(self.logger, key='lustre_'+self.survey.lower()+'_'+self.species.lower())
-			if self.species == 'HI+HISA':
-				path = getPath(self.logger, key='lustre_'+self.survey.lower()+'_hi')
-			flag = self.species
-
-		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_line.fits'
+		file = path+self.survey+'_'+self.mosaic+'_'+flag
 		checkForFiles(self.logger,[file],existence=True)
 		self.filename = file
 

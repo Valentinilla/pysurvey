@@ -103,7 +103,7 @@ class cleanMosaic(object):
 		elif self.species == 'CO':
 					
 			self.logger.info("Applying Moment Mask method (T.M.Dame)...")
-			Tb[0,:,:,:] = moment_mask(self.logger,Tb[0,:,:,:],zmax)
+			Tb[0,:,:,:] = moment_mask(self.logger,Tb[0,:,:,:],zmax,obs.dx,dv)
 		
 		obs.keyword['datamin'] = amin(Tb)
 		obs.keyword['datamax'] = amax(Tb)

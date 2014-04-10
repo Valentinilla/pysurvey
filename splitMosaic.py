@@ -9,8 +9,7 @@ class splitMosaic(object):
 	
 	def __init__(self,mosaic,ntot):
 		"""
-		Calculate the column density in galacto-centric rings using the rotation curve of M. Phol et al.
-		Boundaries of galacto-centric annuli by M.Ackermann et al.
+		Split mosaics in ntot submosaics.
 		"""
 		self.survey = mosaic.survey
 		self.mosaic = mosaic.mosaic
@@ -73,7 +72,7 @@ class splitMosaic(object):
 			mosaic.keyword['maxcol'] = unravel_index(argmax(alist[z]),alist[z].shape)[1]
 			mosaic.keyword['maxrow'] = unravel_index(argmax(alist[z]),alist[z].shape)[2]
 			
-			mosaic.keyword['object'] = ("Mosaic %s (%i/%i)"%(self.mosaic,z+1,self.ntot),"%s Mosaic (part/tot)"%self.survey)
+			mosaic.keyword['object'] = ("Mosaic %s (%i/%s)"%(self.mosaic,z+1,self.ntot),"%s Mosaic (n/tot)"%self.survey)
 			
 			# Output file
 			results = pyfits.PrimaryHDU(alist[z], mosaic.keyword)

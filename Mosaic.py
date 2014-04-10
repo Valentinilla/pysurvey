@@ -35,7 +35,6 @@ class Mosaic(object):
 
 		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_Mosaic')
 		path,flag,self.mosaic = getFile(self.logger,self.survey,self.mosaic,self.species,self.type,self.datatype,nmsc,totmsc)
-		#path,flag,self.mosaic = getFile2(self.logger,self.survey,self.mosaic,self.species,self.type,load)
 
 		self.filename = path+self.survey+'_'+self.mosaic+'_'+flag+'.fits'
 		checkForFiles(self.logger,[self.filename])
@@ -47,19 +46,11 @@ class Mosaic(object):
 		
 		bscale_flag = False
 		if 'bscale' in self.keyword:
-			#print "bscale = %s"%self.keyword['bscale']
 			self.bscale = self.keyword['bscale']
 			bscale_flag = True
 		if 'bzero' in self.keyword and bscale_flag: 
-			#print "bzero = %s"%self.keyword['bzero']
 			self.bzero = self.keyword['bzero']
 		
-		# Bscale and bzero should be read as first keywords	
-		#if ('bscale' and 'bzero') in self.keyword:
-		#	self.bscale = self.keyword['bscale']
-		#	self.bzero = self.keyword['bzero']
-		
-
 		if not('CROTA1' or 'CROTA2') in self.keyword:
 			self.keyword['CROTA1'] = 0.0
 			self.keyword['CROTA2'] = 0.0
@@ -110,14 +101,12 @@ class Mosaic(object):
 		del f[0]
 		
 		self.observation = self.observation.astype(float32)
-		#print self.observation.dtype
 
 		self.zmin = 0
 		self.zmax = 0
 		
 		if self.type == glob_Tb or self.type == glob_ITb:
 			self.observation[self.observation < -1e4] = 0.
-			#self.observation = setNaN2Zero(self.observation)
 			self.observation[isnan(self.observation)] = 0.
 			if self.keyword['NAXIS'] > 3:
 				if self.survey == 'CGPS':
@@ -141,11 +130,6 @@ class Mosaic(object):
 			self._inputs = 'Created '+self.survey+' Mosaic object '+self.species+' '+self.type
 		else:
 			self._inputs = 'Loaded '+self.survey+' Mosaic object '+self.species+' '+self.type
-		
-	#def __getattr__(self, attrname):
-		#try;
-		#return getattr(self.observation, attrname)
-		#except AttributeError:
 
 	def __repr__(self):
 		return self._inputs

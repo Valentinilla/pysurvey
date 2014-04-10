@@ -20,9 +20,9 @@ class combineMosaics(object):
 		sur = self.survey.lower()
 		
 		flag1, flag2 = '',''
-		HI_condition = (self.species == 'HI' or self.species == 'HI_unabsorbed' or self.species == 'HISA')
-		
-		if HI_condition:
+		HI_all_OR = (self.species == 'HI' or self.species == 'HI_unabsorbed' or self.species == 'HISA')
+
+		if HI_all_OR:
 			flag1 = self.species+'_column_density'
 		elif self.species == 'CO':
 			flag1 = 'WCO_intensity_line'
@@ -42,8 +42,8 @@ class combineMosaics(object):
 		path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower()+'_column_density')
 		list = []
 		if self.mosaic == 'skymap':
-			if self.survey == 'CGPS':
-				if HI_condition:
+			if self.survey == 'CGPS' or self.survey == 'LAB':
+				if HI_all_OR:
 					list1 = ['MV1','MV2','MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
 					list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2','MH1','MH2']
 					list3 = ['MIJ1','MIJ2','MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
@@ -58,14 +58,17 @@ class combineMosaics(object):
 				# this configuration (for m --> for f) sort lists in the right way
 				for m in tlist:
 					for f in os.listdir(path):
-						if f.startswith('CGPS_%s_%s'%(m,flag1)):
+						if f.startswith('%s_%s_%s'%(self.survey,m,flag1)):
 							list.append(f)
 		else:
-			if self.survey == 'CGPS':
-				if HI_condition:
-					list = [f for f in os.listdir(path) if f.startswith('CGPS_%s_%s_part'%(self.mosaic,flag1))]
-					list = sort(list)
-
+			if HI_all_OR:
+				list = [f for f in os.listdir(path) if f.startswith('%s_%s_%s_part'%(self.survey,self.mosaic,flag1))]
+				list = sort(list)
+		
+		if len(list) == 0:
+			self.logger.critical("List empty! No files in %s"%path)
+			sys.exit(0)
+		
 		# Total number of mosaics
 		n_msc = len(list)
 		ref_mosaic = path+list[0]
@@ -100,7 +103,7 @@ class combineMosaics(object):
 			msc_file = pyfits.open(mosaic)
 			hdu = msc_file[0]
 			
-			if self.mosaic == 'skymap':
+			if self.mosaic == 'skymap' and (self.survey == 'CGPS' or self.survey == 'LAB'):
 				# select mosaics according to their ID number: 1 down, 2 up
 				# |2|2|2|2|...
 				# |1|1|1|1|...
@@ -110,24 +113,28 @@ class combineMosaics(object):
 			else:
 				list1.append(hdu)
 		
-		if self.species == 'HI':
-			if self.mosaic == 'skymap':
+		if HI_all_OR:
+			if self.mosaic == 'skymap' and (self.survey == 'CGPS' or self.survey == 'LAB'):
 				overlap_lon_px = round(1.12/msc_dy) # mosaics overlap by 1.12 deg = 224 px
 				overlap_lat_px = round(1.12/msc_dy) # if dx = 0.005
 				# needed for indexes
 				odx = int(overlap_lon_px/2)
 				ody = int(overlap_lat_px/2)
 			else:
+				overlap_lon_px = 0
+				overlap_lat_px = 0
 				odx,ody = 0,0
 			
 		if self.species == 'CO':
-			if self.mosaic == 'skymap':
+			if self.survey == 'CGPS' and self.mosaic == 'skymap':
 				overlap_lon_px = round(1.12/msc_dy) # mosaics overlap by 1.12 deg = 224 px
 				overlap_lat_px = round(1.12/msc_dy) #
 				# needed for indexes
 				odx = int(overlap_lon_px/2)
 				ody = int(overlap_lat_px/2)		
 			else:
+                                overlap_lon_px = 0
+                                overlap_lat_px = 0
 				odx,ody = 0,0
 
 		if msc_size == 2:
@@ -163,7 +170,7 @@ class combineMosaics(object):
 		#exit(0)
 
 		vec = [dim,odx,msc_x]
-		if self.mosaic == 'skymap':
+		if self.mosaic == 'skymap' and (self.survey == 'CGPS' or self.survey == 'LAB'):
 			if n_msc > 2:
 				# Concatenate the lowest mosaics along the longitude axis 
 				# |o|o|o|o|... = |o|o|o|o|
@@ -276,7 +283,7 @@ class combineMosaics(object):
 			skymap_name = path+'%s_G%.2f%s%.2f.fits'%(self.survey,crval1,latsign,crval2)
 		else:
 			path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower()+'_column_density')
-			if HI_condition:
+			if HI_all_OR:
 				key = self.species
 				flag = key+'_column_density'
 			elif self.species == 'CO':

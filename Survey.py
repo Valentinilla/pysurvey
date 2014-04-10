@@ -9,7 +9,7 @@ from makeMosaic import *
 from makeCorrection import *
 from combineMosaics import *
 from dsampleMosaic import *
-from testModule import *
+from deconvolveMosaic import *
 from extractionHISA import *
 from cleanMosaic import *
 from splitMosaic import *
@@ -237,7 +237,7 @@ class Survey:
 	def getColumnDensity(self,species='HI'):
 		"""
 		Calculate the column density of a mosaic.
-		Input parameters: species = 'HI'(default),'HISA'(only for CGPS),'HI+HISA'(only for CGPS)
+		Keyword parameter: species = 'HI'(default),'HISA'(only for CGPS),'HI+HISA'(only for CGPS)
 		Access mosaic's attributes through self.coldens
 		"""
 		try:
@@ -315,7 +315,7 @@ class Survey:
 		try:
 			self.mosaic
  		except AttributeError:
-			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the 'loadMap' function.")
+			self.logger.critical("Mosaic object "+species+" does not exist. Load it first with the 'loadMap' function.")
 			return
 		try:
 			self.split = splitMosaic(self.mosaic,num)
@@ -325,19 +325,23 @@ class Survey:
 			self.logger.critical("One or more needed files do not exist")		
 
 
-	def testFunction(self,species='HI'):
+	def deconvolveMosaic(self,species='HI',rotcurve='Bissantz2003'):
 		"""
-		Access mosaic's attributes through self.test
+		Deconvolution technique based on the Galactic rotation curve.
+		Keyword parameters: 
+			species
+			rotcurve = 'Bissantz2003', 'Clemens1985'
+		Access mosaic's attributes through self.decon
 		"""
 		try:
 			self.mosaic
 			self.mosaic.newspec = species
  		except AttributeError:
-			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the 'loadMap' function.")
+			self.logger.critical("Mosaic object "+species+" does not exist. Load it first with the 'loadMap' function.")
 			return
 		try:
-			self.test = testModule(self.mosaic,self.mosaicConf,self.utilsConf)
-			self.logger.info(self.ret.subn(', ',str(self.test))[0])
+			self.decon = deconvolveMosaic(self.mosaic,self.mosaicConf,self.utilsConf,rotcurve,scale_data=False)
+			self.logger.info(self.ret.subn(', ',str(self.decon))[0])
 			
 		except(FileNotFound):
 			self.logger.critical("One or more needed files do not exist")
