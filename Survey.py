@@ -3,17 +3,13 @@
 __author__ = 'S. Federici (DESY)'
 __version__ = '0.1.0'
 
-import os
-import sys
-import pyfits
 import re
 
 from SurveyUtils import *
 from Mosaic import *
 from makeMosaic import *
 from makeCorrection import *
-
-from combineCGPSMosaics import *
+from combineMosaics import *
 
 class Survey:
 	
@@ -22,7 +18,7 @@ class Survey:
 		mosaicConfig = {'mosaic':'skymap','lon':'INDEF','lat':'INDEF','vel1':'INDEF','vel2':'INDEF','side':'INDEF'},
 		utilsConfig = {'tcmb':2.7, # Cosmic Microwave Background temperature (K)
 		'tspin':150., # Excitation or Spin temperature (K)
-		'xfactor':2.3e20, # Standard CO Factor: X=NH2/Wco (K-1 cm-2 km-1 s)
+		'xfactor':1.9e20, # CO Factor - Strong & Mattox (1996): X=NH2/Wco (K-1 cm-2 km-1 s)
 		'c':1.823e18, # Costant (cm-2)
 		'pc2cm':3.08567758e18, # Conversion factor from pc to cm (cm)
 		'poverk':4000.,
@@ -112,8 +108,8 @@ class Survey:
 		Reads the header and gets the data
 		"""
 		try:				
-				self.obs = Mosaic(self.surveyConf,self.mosaicConf,type)
-				self.logger.info(self.ret.subn(', ',str(self.obs))[0])
+			self.obs = Mosaic(self.surveyConf,self.mosaicConf,type)
+			self.logger.info(self.ret.subn(', ',str(self.obs))[0])
 				
 		except(FileNotFound):
 			self.logger.critical("One or more needed files do not exist")
@@ -167,44 +163,40 @@ class Survey:
 		"""
 		try:
 			self.mosaic
+			self.mosaic.newspec = species
  		except AttributeError:
 			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the loadMap function.")
 			return
 		try:
 			self.coldens = makeCorrection(self.mosaic,self.mosaicConf,self.utilsConf)
 			self.logger.info(self.ret.subn(', ',str(self.coldens))[0])
-
-			#if self.mosaic.type == 'brightness temperature' or self.mosaic.type == 'integrated brightness temperature':
-			#	if self.surveyConf['survey'] == 'LAB':
-			#		self.coldens = makeLABCorrection(self.mosaic,self.mosaicConf,self.utilsConf)
-			#		self.logger.info(self.ret.subn(', ',str(self.coldens))[0])
-	
-			#	if self.surveyConf['survey'] == 'CGPS':
-			#		if self.mosaic.species == species:
-			#			self.coldens = makeCGPSCorrection(self.mosaic,self.mosaicConf,self.utilsConf)
-			#			self.logger.info(self.ret.subn(', ',str(self.coldens))[0])
-			#		else:
-			#			self.logger.critical("The 'species' in loadMosaic does not match")
-			#			self.logger.critical("that one in getColumnDensity!!")
-			#			return
-			#else:
-			#	self.logger.critical("The mosaic you loaded is already column density!!")
+			
 		except(FileNotFound):
 			self.logger.critical("One or more needed files do not exist")
 			return
 			
 	
 	def combineMosaics(self,species='HI',type='column density',flag=''):
-
+		
 		try:
-			if self.surveyConf['survey'] == 'CGPS' and self.mosaicConf['mosaic'] == 'skymap':
-				self.skyregion = combineCGPSMosaics(self.mosaicConf,species,type,flag)
-				self.logger.info(self.ret.subn(', ',str(self.skyregion))[0])
+			self.skyregion = combineMosaics(self.surveyConf,self.mosaicConf,species,type,flag)
+			self.logger.info(self.ret.subn(', ',str(self.skyregion))[0])
 			
 		except(FileNotFound):
 			self.logger.critical("One or more needed files do not exist")
 			return
 	
+	def makePlot(self,plot='NH vs Ts',l=0.,b=0.):
+		
+		try:
+			self.data = plotNvsTs(self.logger,self.obs,self.utilsConf,plot,l,b)
+			self.logger.info(self.ret.subn(', ',str(self.data))[0])
+			
+		except(FileNotFound):
+			self.logger.critical("One or more needed files do not exist")
+			return
+					
+
 	def deleteMosaic(self):
 		"""
 		Delete the last object loaded with the loadMosaic function.

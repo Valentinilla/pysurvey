@@ -6,7 +6,6 @@ __version__ = '0.1.0'
 import os
 import sys
 import logging
-import math
 import ConfigParser
 
 # lmfit info: http://newville.github.com/lmfit-py/index.html
@@ -15,71 +14,225 @@ from lmfit.printfuncs import*
 
 from numpy import *
 from numpy.lib.stride_tricks import as_strided
+
 from scipy.signal import fftconvolve
+from scipy.optimize import fsolve
 import scipy.ndimage as ndimage
 
+import pyfits
+
+# Avoid math module if possible because many functions 
+# conflict with those in numpy (math functions operate in 
+# 1D arrays, numpy's in multidimensional arrays)
+# If it is strictly necessary to use math then 
+# import functions explicitly, i.e. 
+# from math import func1,func2,...
+
 #################################################
-#	LAB Survey
+# GLOBAL VARIABLES
 #################################################
-def getMosaicCoordinate(obs,lon,lat,side):
+glob_Tb = 'brightness temperature'
+glob_ITb = 'integrated brightness temperature'
+glob_N = 'column density'
+
+#################################################
+#	START GENERAL FUNCTIONS
+#################################################
+def getMosaicCoordinate(surveyLogger,obs,survey,lon,lat,side):
 	"""
-	LAB Survey: this function allows to generate 'mosaics' like those
+	This function allows to generate 'mosaics' like those
 	defined in CGPS, SGPS, and VGPS.
 	Input parameters:
 	- longitude: galactic longitude of the mosaic's center
 	- latitude:  galactic latitude of the mosaic's center
 	- side:      length in degrees of the mosaic's side
 	Outout parameters:
-	- rl1, rl2:  longitude in pixels
-	- rb1, rb2:  latitude in pixels
+	- l: list of longitude coordinates in pixels (l = [l1,l2])
+	- b: list of latitude coordinates in pixels (b = [b1,b2])
+	- sign: list (sign = [lon_sign,lat_sign])
 	"""
 	
 	lon1 = lon+side
 	lon2 = lon-side
 	lat1 = lat-side
 	lat2 = lat+side
+	
+	# Check if the coordinates in .cfg are inside the mosaic object
+	obj_lon_max = obs.msc_ref_lon+((obs.msc_lon-1.)*abs(obs.msc_del_lon))/2.
+	obj_lon_min = obs.msc_ref_lon-((obs.msc_lon-1.)*abs(obs.msc_del_lon))/2.
+	if survey == 'LAB':
+		obj_lat_max = obs.msc_ref_lat+((obs.msc_lat-1.)*obs.msc_del_lat)
+		obj_lat_min = obs.msc_ref_lat
+	else:
+		obj_lat_max = obs.msc_ref_lat+((obs.msc_lat-1.)*obs.msc_del_lat)/2.
+		obj_lat_min = obs.msc_ref_lat-((obs.msc_lat-1.)*obs.msc_del_lat)/2.
 
-	#l1 = (obs.msc_lon/2. + lon1/obs.msc_del_lon)
-	#l2 = (obs.msc_lon/2. + lon2/obs.msc_del_lon)
-	#b1 = (obs.msc_lat/2. + lat1/abs(obs.msc_del_lat))
-	#b2 = (obs.msc_lat/2. + lat2/abs(obs.msc_del_lat))
+	lon_max = max(lon1,lon2)
+	lon_min = min(lon1,lon2)
+	lat_max = max(lat1,lat2)
+	lat_min = min(lat1,lat2)
+	
+	if not survey == 'Galprop':
+		if lon_max>obj_lon_max or lon_min<obj_lon_min:
+			surveyLogger.critical("The longitude within the .cfg file")
+			surveyLogger.critical("doesn't match that of the mosaic!")
+			sys.exit(0)
+		if lat_max>obj_lat_max or lat_min<obj_lat_min:
+			surveyLogger.critical("The latitude within the .cfg file")
+			surveyLogger.critical("doesn't match that of the mosaic!")	
+			sys.exit(0)
 
-	l1 = int(round(obs.msc_ind_lon-1.+(lon1-obs.msc_ref_lon)/obs.msc_del_lon))
-	l2 = int(round(obs.msc_ind_lon-1.+(lon2-obs.msc_ref_lon)/obs.msc_del_lon))
-	b1 = int(round(obs.msc_ind_lat-1.+(lat1-obs.msc_ref_lat)/obs.msc_del_lat))
-	b2 = int(round(obs.msc_ind_lat-1.+(lat2-obs.msc_ref_lat)/obs.msc_del_lat))
+	l1 = int(round(obs.msc_ind_lon+(lon1-obs.msc_ref_lon)/obs.msc_del_lon))
+	l2 = int(round(obs.msc_ind_lon+(lon2-obs.msc_ref_lon)/obs.msc_del_lon))
+	b1 = int(round(obs.msc_ind_lat+(lat1-obs.msc_ref_lat)/obs.msc_del_lat))
+	b2 = int(round(obs.msc_ind_lat+(lat2-obs.msc_ref_lat)/obs.msc_del_lat))
 
-	rl1 = rint(l1)
-	rl2 = rint(l2)
-	rb1 = rint(b1)
-	rb2 = rint(b2)
+	l = [l1,l2]
+	b = [b1,b2]
 
-	length = rint(side/abs(obs.msc_del_lat)*2)
-
+	# Get the sign of delta_l and delta_b
+	lsign = int((l[1]-l[0])/fabs(l[1]-l[0]))
+	bsign = int((b[1]-b[0])/fabs(b[1]-b[0]))
+	sign = [lsign,bsign]
+	
+	# Order the indexes
+	if l1>l2:
+		l = [l2,l1]
+	if b1>b2:
+		b = [b2,b1]
+	
+	length = rint(side/fabs(obs.msc_del_lat)*2)
+	
+	# Make an equal sides (Lx=Ly) mosaic
 	if length%2 == 0:
 		length = length+1
-
-	if (rl2-rl1) < length:
-		rl1 = rl1-1
-
-	if (rb2-rb1) < length:
-		rb1 = rb1-1
-
-	return int(rl1),int(rl2),int(rb1),int(rb2)
-
+	if (l[1]-l[0]) < length:
+		l[0] = l[0]-1
+	if (b[1]-b[0]) < length:
+		b[0] = b[0]-1
+	
+	return l,b,sign
 
 #################################################
-#	END LAB Survey
+#	START CONVERTING FUNCTIONS
 #################################################
+def ga2equ(lon,lat,ref='J2000'):
+	"""
+	Convert Galactic to Equatorial coordinates (J2000.0)
+	Input: [l,b] in decimal degrees
+	Returns: [ra,dec] in decimal degrees
+	Source:
+	- Book: "Practical astronomy with your calculator" (Peter Duffett-Smith)
+	- Wikipedia "Galactic coordinates"
+	Tests (examples given on the Wikipedia page):
+	>>> ga2equ([0.0, 0.0]).round(3)
+	array([ 266.405, -28.936])
+	>>> ga2equ([359.9443056, -0.0461944444]).round(3)
+	array([ 266.417, -29.008])
+	"""
+	l = radians(lon) # == ga*pi/180.
+	b = radians(lat)
+
+	if ref=='J2000':
+		# North galactic pole (J2000)
+		pole_ra = radians(192.859508)
+		pole_dec = radians(27.128336)
+		posangle = radians(122.932-90.0)
+	if ref=='B1950':
+		# North galactic pole (B1950)
+		pole_ra = radians(192.25)
+		pole_dec = radians(27.4)
+		posangle = radians(123.0-90.0)
+	
+	
+	y = (cos(b)*cos(l-posangle))
+	x = (sin(b)*cos(pole_dec)-cos(b)*sin(pole_dec)*sin(l-posangle))
+	
+	ra_rad = atan2(y,x) + pole_ra
+	dec_rad = asin( cos(b)*cos(pole_dec)*sin(l-posangle) + sin(b)*sin(pole_dec) )
+	
+	ra_deg = degrees(ra_rad)-360*int(degrees(ra_rad)/360)
+	dec_deg = degrees(dec_rad)
+
+	return ra_deg,dec_deg
+
+def eq2gal(ra,dec,ref='J2000'):
+	"""
+	Convert Equatorial to Galactic coordinates (J2000.0/B1950)
+	Input: [l,b] in decimal degrees
+	Returns: [ra,dec] in decimal degrees
+	"""
+	ra = radians(ra)
+	dec = radians(dec)
+	
+	if ref=='J2000':
+		# North galactic pole (J2000)
+		pole_ra = radians(192.859508)
+		pole_dec = radians(27.128336)
+		posangle = radians(122.932-90.0)
+	if ref=='B1950':
+		# North galactic pole (B1950)
+		pole_ra = radians(192.25)
+		pole_dec = radians(27.4)
+		posangle = radians(123.0-90.0)
+	
+	b = asin(cos(dec)*cos(pole_dec)*cos(ra-pole_ra)+sin(dec)*sin(pole_dec))
+	
+	A = sin(dec)-sin(b)*sin(pole_dec)
+	B = cos(dec)*sin(ra-pole_ra)*cos(pole_dec)
+	l = atan2(A,B) + posangle
+	
+	return degrees(l),degrees(b)
+
+def sex2dec(deg,min,sec):
+	"""
+	Convert from sexagesimal (i.e., 182 deg 31'27'') to decimal degrees (i.e., 182.524167 deg)
+	"""
+	A = fabs(sec/60.)
+	B = (fabs(min)+A)/60.
+	newdeg = (fabs(deg)+B)
+	if deg<0. or min<0. or sec<0.:
+		newdeg = -1*newdeg
+	return newdeg
+
+def dec2sex(deg):
+	"""
+	Convert from decimal (i.e., 182.524167 deg) to sexagesimal degrees, minutes, seconds (i.e., 182 deg 31'27'')
+	"""
+	A = fabs(deg) # unsigned decimal
+	B = A*3600 # total seconds
+	C = round((B%60.),2) # seconds (2 dp)
+	if C==60.:
+		sec=0.  # corrected seconds
+		D=B+60. # corrected remainder
+	else:
+		sec=C
+		D=B
+	min = int(D/60.)%60. # minutes
+	newdeg = (deg/A)*int(D/3600.) # signed degrees
+		
+	return int(newdeg),int(min),int(sec)
 
 #################################################
-#	START GENERAL FUNCTIONS
+#	END CONVERTING FUNCTIONS
 #################################################
+
 def get_nth_maxvalue(a, nth):
 	b = a.flatten()
 	res_sort = sort(b)
 	c = res_sort[-nth:]
 	return c[0]
+
+def getSign(number, string=False):
+	if string:
+		Nsign = int(number/fabs(number))
+		Ssign = ('%s'%Nsign).split('1')[0]
+		if Ssign == '':
+			return '+'
+		elif Ssign == '-':
+			return ''
+	else:
+		return int(number/fabs(number))
 
 def test(func):
 	#print test(get_nth_maxvalue(residual,self.HIGH))
@@ -135,6 +288,7 @@ def getRMS(surveyLogger,T):
 	surveyLogger.info("RMS = %s"%rms)
 	return rms
 
+		
 #################################################
 #	END GENERAL FUNCTIONS
 #################################################
@@ -210,8 +364,8 @@ def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
 	#vlsr = -10.
 
 	if (abs(glo_deg) < 165.):
-		glon = glo_deg*pi/180.
-		glat = gla_deg*pi/180.
+		glon = radians(glo_deg)
+		glat = radians(gla_deg)
 		pmean = r_sun*cos(glon)
 		dismin = floor(r_sun*abs(cos(glon))/0.05)
 		radmin = floor(r_sun*abs(sin(glon))/0.05)
@@ -297,12 +451,10 @@ def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
 			i = 0
 			diff=[]
 			for vel in vr:
-				#print round(vel)/round(vlsr)
-				if round(vel)/round(vlsr) == 1.:
+				if abs(vel-vlsr) < 10.: # km/s
 					diff.append([abs(vel-vlsr),i])
-					#print vel,proj_dis[i],i
-				i=i+1
-			#print diff
+					#print "1) vlsr = %s, v = %s, r = %s, i = %s"%(vlsr,vel,proj_dis[i],i)
+				i=i+1			
 			radius = proj_dis[min(diff)[1]]
 			return radius # kpc
 		except ValueError:
@@ -396,6 +548,90 @@ def polarMap():
 	)
 	show()
 
+def plotNvsTs(surveyLogger,obs,utilsConf,plot,lon,lat):
+	"""
+	Compute the column density as a function of Ts for a certain LOS.
+	The output is a datafile.
+	"""
+	if plot == 'NH vs Ts':
+		NHI = zeros((obs.msc_lat,obs.msc_lon),dtype=float)
+		if obs.survey == 'LAB':
+			Tb = obs.observation[:,:,:]
+		else:
+			Tb = obs.observation[0,:,:,:]
+		
+		#Ts = float(utilsConf['tspin'])	  # [Excitation (or Spin) Temperature] = K (150)
+		Tbg = float(utilsConf['tcmb'])	  # [Cosmic Microwave Background (CMB)] = K
+		dv = fabs(obs.msc_del_vel)	  # [velocity] = km s-1
+		C = float(utilsConf['c'])	  # [costant] = cm-2
+		
+		pxsize = obs.msc_del_lat*(pi/180.)	 # [pixel size] = rad
+		Apx = power(pxsize, 2)	 		 # [Area pixel] = sr
+		cosdec = cos((pi/180.)*obs.lat_array)     # [lat. correction] = rad
+		
+		Tb = where( (Tb<0.)|(Tb==0.),Tbg,Tb)
+		# Usefull velocity channels
+		kmin = 0
+		kmax = 0
+		if obs.survey == 'CGPS':
+	        	kmin = 18
+	        	kmax = 271
+		if obs.survey == 'SGPS':
+	        	kmin = 1
+        		kmax = 410
+		
+		l = int(round(obs.msc_ind_lon-1.+(lon-obs.msc_ref_lon)/obs.msc_del_lon))
+		b = int(round(obs.msc_ind_lat-1.+(lat-obs.msc_ref_lat)/obs.msc_del_lat))
+		#print l,b
+		
+		datafile = obs.survey+'_'+obs.mosaic+'_'+obs.species+'_nh_vs_ts.dat'
+		f = os.path.isfile(datafile)
+		
+		if f == False:	
+			outfile = open(datafile,"w")
+			string = ""
+			
+			surveyLogger.info("Calculating NHI for different Ts at the LOS (%s,%s) deg"%(lon,lat))
+			
+			for Ts in range(100,201,5):
+				NHI[:,:] = 0.
+				# Without the continuum component
+				index = where(Tb>=Ts)
+				Tb[index] = 0.999*Ts # Tb must be < Ts, otherwise problems with log
+				
+				cTb = log( (Ts)/(Ts-Tb) ) * Ts
+				ITb = sum(cTb[kmin:kmax,:,:],axis=0)
+				NHI = C*ITb*dv
+				
+				string += "%s\t%s\n" %(Ts,NHI[b,l]*cosdec[b])
+			outfile.write(string)
+			outfile.close()
+		
+			surveyLogger.info("Saving data on '%s'"%datafile)
+
+		surveyLogger.info("Opening data of NHI as a function of Ts at the LOS (%s,%s) deg"%(lon,lat))
+		data = open(datafile,"r")
+		lines = data.readlines()
+		ts = []
+		nh = []
+		for i in range(len(lines)):
+			ts.append(lines[i].split()[0])
+			nh.append(lines[i].split()[1])
+		
+		import matplotlib.pyplot as plt
+		plt.plot(ts,nh,label='Column Density',color='blue',lw=1)#,'x',xi2,yi2)
+		plt.legend(loc='upper right', shadow=False, fancybox=True)
+		plt.xlabel('$T_s (K)$')
+		plt.ylabel('$N_H (cm^{-2})$')
+		plt.title(obs.survey+': '+obs.mosaic+' ('+obs.species+'), LOS = (%s,%s) deg'%(lon,lat))
+		plt.grid(True)
+		plt.show()
+		#fig = plt.figure()
+		#ax = fig.add_subplot(2,1,1)
+		#line, = ax.plot(ts,nh, color='blue', lw=2)
+		#ax.set_yscale('log')
+		#plt.show()
+
 #################################################
 # END PLOTTING FUNCTIONS
 #################################################
@@ -405,23 +641,90 @@ class FileNotFound: pass
 class CommandNotFound: pass
 
 def getPath(surveyLogger, key="cgps_hi"):
-
+		
 	path = False
 	# Rot.Curve
-	if key=="rotcurve_mpohl":
+	if key == 'rotcurve_mpohl':
 		path = True
 		return '/afs/ifh.de/group/that/work-sf/survey/rotcurve/'
+	
+	# TODO
+	#survey = survey_name
+	#sur = survey_name.lower()
+	#
+	#if key == 'lustre_'+sur:
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/'
+	#if key == 'lustre_'+sur+'_hi':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/HI/'
+	#if key == 'lustre_'+sur+'_hi_column_density':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/HI/col_den/'
+	#if key == 'lustre_'+sur+'_hisa':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/HISA/'
+	#if key == 'lustre_'+sur+'_hisa_column_density':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/HISA/col_den/'
+	#if key == 'lustre_'+sur+'_co':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/CO/'
+	#if key == 'lustre_'+sur+'_co_column_density':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/CO/col_den/'
 
+	# Galprop
+	if key=="galprop_hi":
+		path = True
+		return '/afs/ifh.de/group/that/soft/opt/Galprop/FITS/'
+	if key=="galprop_co":
+		path = True
+		return '/afs/ifh.de/group/that/soft/opt/Galprop/FITS/'
+	
+	if key=="lustre_galprop":
+		path = True
+		return '/lustre/fs4/group/that/sf/Surveys/Galprop/'
+	if key=="lustre_galprop_hi":
+		path = True
+		return '/lustre/fs4/group/that/sf/Surveys/Galprop/HI/'
+	if key=="lustre_galprop_hi_column_density":
+		path = True
+		return '/lustre/fs4/group/that/sf/Surveys/Galprop/HI/col_den/'
+	if key=="lustre_galprop_hisa":
+		path = True
+		return '/lustre/fs4/group/that/sf/Surveys/Galprop/HISA/'
+	if key=="lustre_galprop_hisa_column_density":
+		path = True
+		return '/lustre/fs4/group/that/sf/Surveys/Galprop/HISA/col_den/'
+	if key=="lustre_galprop_co":
+		path = True
+		return '/lustre/fs4/group/that/sf/Surveys/Galprop/CO/'
+	if key=="lustre_galprop_co_column_density":
+		path = True
+		return '/lustre/fs4/group/that/sf/Surveys/Galprop/CO/col_den/'
+
+	# Dame
+	if key=="dame_co":
+		path = True
+		return '/afs/ifh.de/group/that/data/DiffuseEmission/co/'
+	if key=="lustre_dame":
+		path = True
+		return '/lustre/fs4/group/that/sf/Surveys/Dame/'
+	if key=="lustre_dame_co_column_density":
+		path = True
+		return '/lustre/fs4/group/that/sf/Surveys/Dame/col_den/'
+	
 	# LAB
 	if key=="lab_hi":
 		path = True
 		return '/afs/ifh.de/group/that/data/Radio/skymaps/hi/LAB/'
 	if key=="lustre_lab":
 		path = True
-		return '/lustre/fs4/group/that/sf/LAB/'
+		return '/lustre/fs4/group/that/sf/Surveys/LAB/'
 	if key=="lustre_lab_hi_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/LAB/col_den/'
+		return '/lustre/fs4/group/that/sf/Surveys/LAB/col_den/'
 
 	# CGPS
 	if key=="cgps_hi":
@@ -439,25 +742,25 @@ def getPath(surveyLogger, key="cgps_hi"):
 
 	if key=="lustre_cgps":
 		path = True
-		return '/lustre/fs4/group/that/sf/CGPS/'
+		return '/lustre/fs4/group/that/sf/Surveys/CGPS/'
 	if key=="lustre_cgps_hi":
 		path = True
-		return '/lustre/fs4/group/that/sf/CGPS/HI/'
+		return '/lustre/fs4/group/that/sf/Surveys/CGPS/HI/'
 	if key=="lustre_cgps_hi_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/CGPS/HI/col_den/'
+		return '/lustre/fs4/group/that/sf/Surveys/CGPS/HI/col_den/'
 	if key=="lustre_cgps_hisa":
 		path = True
-		return '/lustre/fs4/group/that/sf/CGPS/HISA/'
+		return '/lustre/fs4/group/that/sf/Surveys/CGPS/HISA/'
 	if key=="lustre_cgps_hisa_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/CGPS/HISA/col_den/'
+		return '/lustre/fs4/group/that/sf/Surveys/CGPS/HISA/col_den/'
 	if key=="lustre_cgps_co":
 		path = True
-		return '/lustre/fs4/group/that/sf/CGPS/CO/'
+		return '/lustre/fs4/group/that/sf/Surveys/CGPS/CO/'
 	if key=="lustre_cgps_co_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/CGPS/CO/col_den/'
+		return '/lustre/fs4/group/that/sf/Surveys/CGPS/CO/col_den/'
 
 	# SGPS
 	if key=="sgps_hi":
@@ -472,19 +775,19 @@ def getPath(surveyLogger, key="cgps_hi"):
 
 	if key=="lustre_sgps":
 		path = True
-		return '/lustre/fs4/group/that/sf/SGPS/'
+		return '/lustre/fs4/group/that/sf/Surveys/SGPS/'
 	if key=="lustre_sgps_hi":
 		path = True
-		return '/lustre/fs4/group/that/sf/SGPS/HI/'
+		return '/lustre/fs4/group/that/sf/Surveys/SGPS/HI/'
 	if key=="lustre_sgps_hi_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/SGPS/HI/col_den/'
+		return '/lustre/fs4/group/that/sf/Surveys/SGPS/HI/col_den/'
 	if key=="lustre_sgps_hisa":
 		path = True
-		return '/lustre/fs4/group/that/sf/SGPS/HISA/'
+		return '/lustre/fs4/group/that/sf/Surveys/SGPS/HISA/'
 	if key=="lustre_sgps_hisa_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/SGPS/HISA/col_den/'
+		return '/lustre/fs4/group/that/sf/Surveys/SGPS/HISA/col_den/'
 		
 	if(not path):
 		surveyLogger.critical("Path '%s' doesn't exist."%key)
@@ -494,12 +797,86 @@ def getPath(surveyLogger, key="cgps_hi"):
 # ERROR MSG FUNCTION
 #--------------------------------
 def typeErrorMsg(surveyLogger,type,typeEntry='HI'):
+
 	if typeEntry=='HI' or typeEntry=='HISA' or typeEntry=='CO':
-		msg = "Allowed types are: 'brightness temperature', and 'column density'. Your entry is: '%s'."%type
+		msg = "Allowed types are: '"+glob_Tb+"', and '"+glob_N+"'. Your entry is: '"+type+"'."
+
+	elif typeEntry=='WCO':
+		msg = "Allowed types are: '"+glob_ITb+"', '"+glob_N+"'. Your entry is: '"+type+"'."
+
 	elif typeEntry=='HI+HISA' or typeEntry=='HI+CO' or typeEntry=='HI+HISA+CO':
-		msg = "Allowed type is only 'column density'. Your entry is: '%s'."%type
+		msg = "Allowed type is only '"+glob_N+"'. Your entry is: '"+type+"'."
 	
 	surveyLogger.critical(msg)
+
+def checkToGetData(surveyLogger,f1,f2,f3=None):
+	
+	file1 = os.path.isfile(f1)
+	file2 = os.path.isfile(f2)
+	file3 = os.path.isfile(f3)
+
+	flag1,flag2,flag3 = True,True,True
+
+	if f3 == None:
+		# if both files already exist		
+		if file1 and file2:
+			flag1, flag2 = False, False
+			data1, header1 = pyfits.getdata(f1, 0, header = True)
+			data2, header2 = pyfits.getdata(f2, 0, header = True)
+			N = data1+data2
+		#file1 already exists
+		if file1 and not file2:
+			flag1 = False
+			data1, header1 = pyfits.getdata(f1, 0, header = True)
+			N = data1
+		# file2 already exists
+		if file2 and not file1:
+			flag2 = False
+			data2, header2 = pyfits.getdata(f2, 0, header = True)
+			N = data2
+		return N,flag1,flag2
+	else:
+		# All of the files already exist
+		if(file1 and file2 and file3):
+			flag1,flag2,flag3 = False,False,False
+			data1, header1 = pyfits.getdata(f1, 0, header = True)
+			data2, header2 = pyfits.getdata(f2, 0, header = True)
+			data3, header3 = pyfits.getdata(f3, 0, header = True)
+			N = data1+data2+data3
+		# file1 and file2 already exist	
+		if(file1 and file2) and not file3:
+			flag1,flag2,flag3 = False,False,True
+			data1, header1 = pyfits.getdata(f1, 0, header = True)
+			data2, header2 = pyfits.getdata(f2, 0, header = True)
+			N = data1+data2
+		# file1 and file3 already exist	
+		if(file1 and file3) and not file2:
+			flag1,flag2,flag3 = False,True,False
+			data1, header1 = pyfits.getdata(f1, 0, header = True)
+			data3, header3 = pyfits.getdata(f3, 0, header = True)
+			N = data1+data3
+		# file2 and file3 already exist	
+		if(file2 and file3) and not file1:
+			flag1,flag2,flag3 = True,False,False
+			data2, header2 = pyfits.getdata(f2, 0, header = True)
+			data3, header3 = pyfits.getdata(f3, 0, header = True)
+			N = data2+data3
+		# file1 already exists
+		if file1 and not(file2 and file3):
+			flag1,flag2,flag3 = False,True,True
+			data1, header1 = pyfits.getdata(f1, 0, header = True)
+			N = data1
+		# file2 already exists
+		if file2 and not(file1 and file3):
+			flag1,flag2,flag3 = True,False,True
+			data2, header2 = pyfits.getdata(f2, 0, header = True)
+			N = data2
+		# file3 already exists
+		if file3 and not(file1 and file2):
+			flag1,flag2,flag3 = True,True,False
+			data3, header3 = pyfits.getdata(f3, 0, header = True)
+			N = data3
+		return N,flag1,flag2,flag3
 
 def checkForFiles(surveyLogger, fileList, existence=False):
 	"""

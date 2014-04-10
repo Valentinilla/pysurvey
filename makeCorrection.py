@@ -4,30 +4,25 @@ __author__ = 'S. Federici (DESY)'
 __version__ = '0.1.0'
 
 from SurveyUtils import*
-import pyfits
-import math
-from scipy.optimize import fsolve
 
 
 class makeCorrection(object):
 	
 	def __init__(self,mosaic,mosaicConf,utilsConf):
-		
+		"""
+		Calculate the column density of a mosaic (applying corrections) for the following species:
+		'HI'(default), and 'HISA','HI+HISA','HI+CO','HI+HISA+CO' only for CGPS/SGPS
+		"""
 		self.survey = mosaic.survey
 		self.mosaic = mosaic.mosaic
-		self.species = mosaic.species
+		self.species = mosaic.newspec #specified by the user
 		self.type = mosaic.type
 
 		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_ColumnDensity')
 		file = ''
 		path = ''
-
-		if self.survey == 'LAB':
-			sur = 'lab'
-		if self.survey == 'CGPS':
-			sur = 'cgps'
-		if self.survey == 'SGPS':
-			sur = 'sgps'
+		flag = ''
+		sur = (self.survey).lower()
 
 		if self.species == 'HI':
 			path = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
@@ -43,6 +38,9 @@ class makeCorrection(object):
 		elif self.species == 'CO':
 			path = getPath(self.logger,'lustre_'+sur+'_co_column_density')
 			flag = 'H2'
+		elif self.species == 'WCO':
+			path = getPath(self.logger,'lustre_'+sur+'_co_column_density')
+			flag = 'H2'
 		elif self.species == 'HI+CO':
 			path = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
 			flag = 'HI+H2'
@@ -53,21 +51,28 @@ class makeCorrection(object):
 		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_column_density.fits'
 		checkForFiles(self.logger,[file],existence=True)
 		
-
 		self.logger.info("Open file and get data...")
-
+		
 		# Array to store results
 		N = zeros((mosaic.msc_lat,mosaic.msc_lon),dtype=float)
-
+		
 		Ts = float(utilsConf['tspin'])	  # [Excitation (or Spin) Temperature] = K (150)
 		Tbg = float(utilsConf['tcmb'])	  # [Cosmic Microwave Background (CMB)] = K
-		dv = fabs(mosaic.msc_del_vel)	  # [velocity] = km s-1
+		if not self.species == 'WCO':
+			dv = fabs(mosaic.msc_del_vel)	  # [velocity] = km s-1
 		C = float(utilsConf['c'])	  # [costant] = cm-2
-
+		
 		# Corrections for latitude (almost negligible)
-		cosdec = cos( (pi/180.) * mosaic.lat_array) # [lat. correction] = rad
+		cosdec = cos( radians(mosaic.lat_array) ) # [lat. correction] = rad
+		
+		if self.survey == 'Galprop':
+			if self.species == 'WCO':
+				# Get emission data and velocity interval
+				wco = sum(mosaic.observation,axis=0)
+				# 2 accounts for the convertion from molecules to atoms
+				N = 2*wco*float(utilsConf['xfactor'])*cosdec
 
-		if self.survey == 'LAB':
+		elif self.survey == 'LAB':
 						
 			# Get data		
 			Tb = mosaic.observation[:,:,:]
@@ -79,19 +84,26 @@ class makeCorrection(object):
 			# Optical depth correction
 			# Without the continuum component
 			cTb = log( (Ts)/(Ts-Tb) ) * Ts
-				
+			#cTb = -log(1-(Tb/(Ts-Tbg))) * Ts
+			
 			# Integrated brightness temperature over velocity (axis = 0)
 			ITb = sum(cTb,axis=0)
-
+			
 			self.logger.info("Calculating NHI...")			
 			# Column density
-			N = C * ITb * dv	# [NHI] = cm-2
+			N = C * ITb * dv	# [N] = cm-2
 			# Corrected column density
-			N = NHI*cosdec
-		
+			N = N*cosdec
 
+		elif self.survey == 'Dame':
+			if self.species == 'WCO':
+				# Get emission data and velocity interval
+				wco = mosaic.observation
+				# 2 accounts for the convertion from molecules to atoms
+				N = 2*wco*float(utilsConf['xfactor'])*cosdec
+				
 		elif self.survey == 'CGPS' or self.survey == 'SGPS':
-		
+			
 			# Usefull velocity channels
 			kmin = 0
 			kmax = 0
@@ -103,61 +115,50 @@ class makeCorrection(object):
         	       		kmax = 410
 			
 			# Used to skip calculation (see below) - do not change it!
-			flag = True
-			# If the two column density files already exist, 
-			# than add them up and skip the calculation			
+			flagHI,flagCO,flagHISA = True, True, True
+			
+			# If the two column density files (or one of them) already exist, 
+			# than add them up and skip the calculation (or skip the unnecessary one)		
 			if self.species == 'HI+HISA':
-				path = getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
-				file1 = path+self.survey+'_'+self.mosaic+'_HISA_column_density.fits'
-					
-				path = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
-				file2 = path+self.survey+'_'+self.mosaic+'_HI_unabsorbed_column_density.fits'
-					
-				if os.path.isfile(file1) and os.path.isfile(file2):
-					flag = False
-					data1, header = pyfits.getdata(file1, 0, header = True)
-					data2, header = pyfits.getdata(file2, 0, header = True)
-					N = data1+data2
-			
+				path1 = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
+				file1 = path1+self.survey+'_'+self.mosaic+'_HI_unabsorbed_column_density.fits'
+				
+				path2 = getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
+				file2 = path2+self.survey+'_'+self.mosaic+'_HISA_column_density.fits'
+				
+				N,flagHI,flagHISA = checkToGetData(self.logger,file1,file2)
+				
 			if self.species == 'HI+CO':
-				path = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
-				file1 = path+self.survey+'_'+self.mosaic+'_HI_unabsorbed_column_density.fits'
+				path1 = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
+				file1 = path1+self.survey+'_'+self.mosaic+'_HI_unabsorbed_column_density.fits'
 				
-				path = getPath(self.logger,'lustre_'+sur+'_co_column_density')
-				file2 = path+self.survey+'_'+self.mosaic+'_H2_column_density.fits'
-									
-				if os.path.isfile(file1) and os.path.isfile(file2):
-					flag = False
-					data1, header = pyfits.getdata(file1, 0, header = True)
-					data2, header = pyfits.getdata(file2, 0, header = True)
-					N = data1+data2
-			
+				path2 = getPath(self.logger,'lustre_'+sur+'_co_column_density')
+				file2 = path2+self.survey+'_'+self.mosaic+'_H2_column_density.fits'
+				
+				N,flagHI,flagCO = checkToGetData(self.logger,file1,file2)
+							
 			if self.species == 'HI+HISA+CO':
-				path = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
-				file1 = path+self.survey+'_'+self.mosaic+'_HI_unabsorbed_column_density.fits'
+				path1 = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
+				file1 = path1+self.survey+'_'+self.mosaic+'_HI_unabsorbed_column_density.fits'
 				
-				path = getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
-				file2 = path+self.survey+'_'+self.mosaic+'_HISA_column_density.fits'
+				path2 = getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
+				file2 = path2+self.survey+'_'+self.mosaic+'_HISA_column_density.fits'
 				
-				path = getPath(self.logger,'lustre_'+sur+'_co_column_density')
-				file3 = path+self.survey+'_'+self.mosaic+'_H2_column_density.fits'
-									
-				if os.path.isfile(file1) and os.path.isfile(file2) and os.path.isfile(file3):
-					flag = False
-					data1, header = pyfits.getdata(file1, 0, header = True)
-					data2, header = pyfits.getdata(file2, 0, header = True)
-					data3, header = pyfits.getdata(file3, 0, header = True)
-					N = data1+data2+data3
-			
-			if(not self.species == 'CO') and (flag == True):
+				path3 = getPath(self.logger,'lustre_'+sur+'_co_column_density')
+				file3 = path3+self.survey+'_'+self.mosaic+'_H2_column_density.fits'
+
+				N,flagHI,flagHISA,flagCO = checkToGetData(self.logger,file1,file2,file3)
+						
+			# Computing Column Density
+			if(not self.species == 'CO'):
 				# Get HI emission data
 				Tb = mosaic.observation[0,:,:,:]
 				# Setting the negative/0-values to Tcmb 
-				Tb = where( (Tb<0.) | (Tb==0.),Tbg,Tb)
+				#Tb = where( (Tb<0.) | (Tb==0.),Tbg,Tb)
 				
 				# HI Column Density						
-				if(not self.species == 'HISA'):
-				
+				if(not self.species == 'HISA') and (flagHI == True):
+
 					NHI = zeros((mosaic.msc_lat,mosaic.msc_lon),dtype=float)
 					
 					self.logger.info("Initializing parameters...")
@@ -173,7 +174,7 @@ class makeCorrection(object):
 					# Without the continuum component
 					Tfunc = (Ts)/(Ts-Tb)
 					
-					Tfunc[Tfunc<1.] = Tbg # <------ TO JUSTIFY
+					Tfunc[Tfunc<1.] = 1. # <------ TO JUSTIFY
 					cTb = log(Tfunc) * Ts
 					# Integrated brightness temperature over velocity (axis = 0)
 					ITb = sum(cTb[kmin:kmax,:,:],axis=0)
@@ -182,8 +183,7 @@ class makeCorrection(object):
 					N = NHI*cosdec
 					
 				# HISA Column Density
-				if(not self.species == 'HI') and (not self.species == 'HI+CO'):
-					
+				if(not self.species == 'HI') and (not self.species == 'HI+CO') and (flagHISA == True):
 					NHISA = zeros((mosaic.observation.shape),dtype=float)
 					
 					# Get HI continuum data
@@ -197,11 +197,11 @@ class makeCorrection(object):
 						Tc = data[0,0,:,:]
 					if self.survey == 'SGPS':
 						Tc = data[:,:]
-						Tc = where( (Tc<0.) | (Tc==0.),Tbg,Tc)
+						#Tc = where( (Tc<0.) | (Tc==0.),Tbg,Tc)
 
 					# Get HISA data
-					path = getPath(self.logger,sur+'_hisa_dat')
-					amplitude = path+self.survey+'_'+self.mosaic+'_HISA.dat'
+					path_hisa_dat = getPath(self.logger,sur+'_hisa_dat')
+					amplitude = path_hisa_dat+self.survey+'_'+self.mosaic+'_HISA.dat'
 					checkForFiles(self.logger,[amplitude])
 					input = open(amplitude,'r')
 					lines = input.readlines()
@@ -224,20 +224,17 @@ class makeCorrection(object):
 						l = floor(ha/1024)
 						k = ha-l*1024
 						
-						#print k,l,mosaic.lon_array[k],mosaic.lat_array[l],mosaic.vel_array[m]
-						#exit(0)
 						# Params
 						glon = mosaic.lon_array[k]
 						glat = mosaic.lat_array[l] #<--- 160? (it's in the martin's idl code)
 						vlsr = mosaic.vel_array[m]
-						#polarMap()
-						#exit(0)						
+												
 						d = rotCurveMPohl(self.logger,glon,glat,vlsr) #kpc
 						string = "%s %s %s %s\n"%(d,glon,glat,vlsr)
 						galax_dist.write(string)
-						#exit(0)
-						theta = mosaic.msc_del_lat*pi/180 #rad
-						ds = d*tan(theta)*1e3 #pc #(theta*pi/10800) from arcm to rad
+						
+						theta = radians(mosaic.msc_del_lat) #rad
+						ds = d*tan(theta)*1e3 #pc
 						
 						A1 = float(utilsConf['pc2cm'])*float(utilsConf['poverk'])
 						A2 = float(utilsConf['fn'])*ds/(C*dv)
@@ -286,7 +283,7 @@ class makeCorrection(object):
 						if ier == 1:
 							solution = True
 							NHISA[0,m,l,k] = tau*Ts*dv*C
-							NHISA[0,m,l,k] = NHISA[0,m,l,k]*cos( (pi/180.)*mosaic.lat_array[l])
+							NHISA[0,m,l,k] = NHISA[0,m,l,k]*cos(radians(mosaic.lat_array[l]))
 						if not solution:
 							#print "Could not find a valid solution:"
 							#print mesg
@@ -299,10 +296,11 @@ class makeCorrection(object):
 					# Corrected column density
 					N = N + sum(NHISA[0,kmin:kmax,:,:],axis=0)
 
-			if(self.species == 'HI+CO') or (self.species == 'HI+HISA+CO') and (flag == True):
+			if(self.species == 'CO' or self.species == 'HI+CO' or self.species == 'HI+HISA+CO') and (flagCO == True):
 				# Get CO emission data
-				path = getPath(self.logger, 'lustre_'+sur+'_co')
-				co = pathc+self.survey+'_'+self.mosaic+'_WCO_line.fits'
+				pathco = getPath(self.logger, 'lustre_'+sur+'_co')
+				co = pathco+self.survey+'_'+self.mosaic+'_CO_line.fits'
+				checkForFiles(self.logger,[co])
 				Wco, header = pyfits.getdata(co, 0, header = True)
 				# 2 accounts for the convertion from molecules to atoms
 				N = N + 2*Wco*float(utilsConf['xfactor'])*cosdec
@@ -327,14 +325,14 @@ class makeCorrection(object):
 		newheader = pyfits.Header()
 		newheader.update(key="ctype1", value="GLON-CAR", comment="Coordinate type")
 		newheader.update(key="crval1", value=mosaic.msc_ref_lon, comment="Galactic longitude of reference pixel")
-		newheader.update(key="crpix1", value=mosaic.msc_ind_lon, comment="Reference pixel in lon")
+		newheader.update(key="crpix1", value=mosaic.msc_ind_lon, comment="Reference pixel of lon")
 		newheader.update(key="cdelt1", value=mosaic.msc_del_lon, comment="Longitude increment")
 		newheader.update(key="crota1", value=mosaic.msc_rot_lon, comment="Longitude rotation")
 		newheader.update(key="cunit1", value="deg", comment="Unit type")
 
 		newheader.update(key="ctype2", value="GLAT-CAR", comment="Coordinate type")
 		newheader.update(key="crval2", value=mosaic.msc_ref_lat, comment="Galactic latitude of reference pixel")
-		newheader.update(key="crpix2", value=mosaic.msc_ind_lat, comment="Reference pixel in lat")
+		newheader.update(key="crpix2", value=mosaic.msc_ind_lat, comment="Reference pixel of lat")
 		newheader.update(key="cdelt2", value=mosaic.msc_del_lat, comment="Latitude increment")
 		newheader.update(key="crota2", value=mosaic.msc_rot_lat, comment="Latitude rotation")
 		newheader.update(key="cunit2", value="deg", comment="Unit type")
