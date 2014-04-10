@@ -16,6 +16,7 @@ class testModule(object):
 		self.mosaic = mosaic.mosaic
 		self.species = mosaic.newspec #specified by the user
 		self.type = mosaic.type
+		self.datatype = mosaic.datatype
 
 		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_TestModule')
 		file,path,flag,units = '','','',''
@@ -23,7 +24,10 @@ class testModule(object):
 		
 		if self.species == 'HI':
 			path = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
-			flag = 'HI_unabsorbed_column_density'
+			if mosaic.totmsc == 1:
+				flag = 'HI_unabsorbed_column_density'
+			else:
+				flag = 'HI_unabsorbed_column_density_part_%i-%i'%(int(mosaic.nmsc),int(mosaic.totmsc))
 			units = '10e+20 H atoms cm-2'
 		elif self.species == 'HISA':
 			path = getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
@@ -36,8 +40,8 @@ class testModule(object):
 		
 		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_rings.fits'
 		checkForFiles(self.logger,[file],existence=True)
-		#print mosaic.filename
-		
+		#print mosaic.filename		
+
 		self.logger.info("Open file and get data...")
 				
 		# Get HI emission data
@@ -61,13 +65,8 @@ class testModule(object):
 		
 		Ts = float(utilsConf['tspin'])	  	# [Excitation (or Spin) Temperature] = K (150)
 		C = float(utilsConf['c'])	  	# [costant] = cm-2
-
-		# Boundaries of Galactocentric Annuli - M.Ackermann et al
-		# (The Astrophysical Journal, 750:3-38, 2012)
-		annuli = 17
-		rmin = [0.,1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.]
-		rmax = [1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.,50.]
-		#ann_boundaries = [ [i,rmin[i],rmax[i]] for i in xrange(annuli)]
+		
+		rmin,rmax,annuli = getAnnuli()
 		
 		# Array to store results
 		cubemap = zeros((annuli,nlat,nlon),dtype=float32)
@@ -84,8 +83,10 @@ class testModule(object):
 		# Using Multiprocessing if enough cpus are available
 		import multiprocessing
 		
-		ncpu = 8#int(ceil(multiprocessing.cpu_count()/1))
+		ncpu = glob_ncpu#int(ceil(multiprocessing.cpu_count()/1))
+		if ncpu > 16: ncpu = 16
 		#print float(Tb.shape[1])/ncpu
+		#print Tb.shape
 		
 		if Tb.shape[1] < ncpu:
 			ncpu = Tb.shape[1]
@@ -106,7 +107,6 @@ class testModule(object):
 			cubemap = rotation_curve( (Tb,list) )
 			
 		if self.species == 'HI' or self.species == 'HISA':
-			#cubemap = where(cubemap>0.,cubemap*1e-20,cubemap)
 			cubemap = cubemap*1e-20
 
 		# Store results
@@ -147,10 +147,10 @@ class testModule(object):
 		# Output file
 		results = pyfits.PrimaryHDU(cubemap, newheader)
 		if scale_data:
-			self.logger.info("Write scaled data to a fits file in...")
+			self.logger.info("Writing scaled data to a fits file in...")
     			results.scale('int16', '', bscale=mosaic.bscale, bzero=mosaic.bzero)
 		else:
-			self.logger.info("Write data to a fits file in...")
+			self.logger.info("Writing data to a fits file in...")
 
 		# Create a Table with the annuli boundaries
 		col1 = pyfits.Column(name='Rmin', format='1E', unit='kpc', array=array(rmin))

@@ -16,7 +16,7 @@ class Mosaic(object):
 	
 	#def __init__(self,surveyConf,mosaicConf,type,species='',load=False):
 	#@profile
-	def __init__(self,surveyConf,mosaicConf,type,species='',datatype='original'):
+	def __init__(self,surveyConf,mosaicConf,type,species='',datatype='original',nmsc=1,totmsc=1):
 		"""
 		Read the fits file: HI, HISA, CO
 		To check memory consumption:
@@ -31,9 +31,12 @@ class Mosaic(object):
 		self.species = species
 		if self.species == '':
 			self.species = surveyConf['species']
+		self.datatype = datatype
+		self.nmsc = nmsc
+		self.totmsc = totmsc
 
 		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_Mosaic')
-		path,flag,self.mosaic = getFile(self.logger,self.survey,self.mosaic,self.species,self.type,datatype)
+		path,flag,self.mosaic = getFile(self.logger,self.survey,self.mosaic,self.species,self.type,self.datatype,nmsc,totmsc)
 		#path,flag,self.mosaic = getFile2(self.logger,self.survey,self.mosaic,self.species,self.type,load)
 
 		self.filename = path+self.survey+'_'+self.mosaic+'_'+flag+'.fits'
@@ -44,10 +47,20 @@ class Mosaic(object):
 		f = pyfits.open(self.filename)
 		self.keyword = f[0].header
 		
-		# Bscale and bzero should be read as first keywords	
-		if ('BSCALE' and 'BZERO') in self.keyword:	
+		bscale_flag = False
+		if 'bscale' in self.keyword:
+			#print "bscale = %s"%self.keyword['bscale']
 			self.bscale = self.keyword['bscale']
+			bscale_flag = True
+		if 'bzero' in self.keyword and bscale_flag: 
+			#print "bzero = %s"%self.keyword['bzero']
 			self.bzero = self.keyword['bzero']
+		
+		# Bscale and bzero should be read as first keywords	
+		#if ('bscale' and 'bzero') in self.keyword:
+		#	self.bscale = self.keyword['bscale']
+		#	self.bzero = self.keyword['bzero']
+		
 
 		if not('CROTA1' or 'CROTA2') in self.keyword:
 			self.keyword['CROTA1'] = 0.0

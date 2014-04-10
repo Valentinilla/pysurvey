@@ -69,7 +69,7 @@ class makeMosaic(object):
 		self.logger.info("Getting the data from...")
 		self.logger.info("%s"%obs.filename)
 		
-		if not self.survey == 'CGPS':
+		if not (self.survey == 'CGPS' or self.survey == 'SGPS'):
 
 			self.mosaic = mosaicConf['mosaic']
 			lon = mosaicConf['lon'] # deg
@@ -203,11 +203,16 @@ class makeMosaic(object):
 				if self.species == 'HISA':
 					Tb = zeros(Tb.shape,dtype=float32)
 				
-				path_data = getPath(self.logger, key="cgps_hisa_dat")
+				path_data = getPath(self.logger, key="%s_hisa_dat"%self.survey.lower())
 				datafile = path_data+self.survey+'_'+self.mosaic+'_HISA.dat'		
 				checkForFiles(self.logger,[datafile])
 				input = open(datafile,"r")
 				lines = input.readlines()
+
+				xdim = Tb.shape[3]
+				ydim = Tb.shape[2]		
+
+				#print Tb.shape[1],ydim,xdim
 				
 				for line in lines:
 					na = float(line.split('\n')[0].split()[0]) # HISA region
@@ -216,10 +221,16 @@ class makeMosaic(object):
 					nd = float(line.split('\n')[0].split()[3]) # Delta T (always negative)  Tb only HISA
 					#print "%.2f\t%.2f\t%.2f\t%.2f"%(na,nb,nc,nd)
 					
-					m = floor(nb/1024/1024)
-					ha = nb-m*1024*1024
-					l = floor(ha/1024)
-					k = ha-l*1024
+					#m = floor(nb/1024/1024)
+					#ha = nb-m*1024*1024
+					#l = floor(ha/1024)
+					#k = ha-l*1024
+					#print m,l,k
+					
+					m = floor(nb/xdim/ydim)
+					ha = nb-m*xdim*ydim
+					l = floor(ha/xdim)
+					k = ha-l*xdim
 					
 					if self.species == 'HISA':
 						Tb[0,m,l,k] = fabs(nd)
@@ -247,7 +258,7 @@ class makeMosaic(object):
 			#results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)
 
 		# Output file
-		self.logger.info("Write scaled data to a fits file in...")
+		self.logger.info("Writing data to a fits file in...")
 		results.writeto(file, output_verify='fix')
 		self.logger.info("%s"%path)
 		self.logger.info("Done")

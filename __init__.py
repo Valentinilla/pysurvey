@@ -13,3 +13,4 @@ from testModule import *
 from spatialAnalysis import *
 from spectralAnalysis import *
 from cleanMosaic import *
+from splitMosaic import *

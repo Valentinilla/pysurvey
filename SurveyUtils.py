@@ -35,7 +35,7 @@ import pyfits
 glob_Tb  = 'brightness temperature'
 glob_ITb = 'integrated brightness temperature'
 glob_N   = 'column density'
-
+glob_ncpu = 16
 #################################################
 #	START GENERAL FUNCTIONS
 #################################################
@@ -484,6 +484,15 @@ def nearest_neighbors(xarray,yarray):
 #################################################
 #	END MAP CORRECTIONS
 #################################################
+def getAnnuli():
+	# Boundaries of Galactocentric Annuli - M.Ackermann et al
+	# (The Astrophysical Journal, 750:3-38, 2012)
+	annuli = 17
+	rmin = [0.,1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.]
+	rmax = [1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.,50.]
+	#ann_boundaries = [ [i,rmin[i],rmax[i]] for i in xrange(annuli)]
+	
+	return rmin,rmax,annuli
 
 #################################################
 #	START ROTATION CURVE
@@ -526,7 +535,7 @@ def rotation_curve( (T,vec) ):
 	bissantz = input.read().split()
 	n1 = 200
 	vrs = array(bissantz).reshape(n1,n1)
-	vrs = vrs.astype(float)
+	vrs = vrs.astype(float32)
 	# free memory
 	del bissantz
 	#print vrs[100,98]  #-79.1474
@@ -536,7 +545,7 @@ def rotation_curve( (T,vec) ):
 	R = 0.5
 	xa = -10.+0.1*(R+arange(n1))
 	ya = -10.+0.1*(R+arange(n1))
-	rb = zeros((n1,n1),dtype=float)
+	rb = zeros((n1,n1),dtype=float32)
 	rb = [sqrt(xa[i]**2+ya**2) for i in xrange(n1)]
 	rb = array(rb)
 	ia = where(rb > 8.0)
@@ -601,8 +610,8 @@ def rotation_curve( (T,vec) ):
 	file3 = path+'rotcurv4.dat'
 	input = open(file3,'r')
 	rotation = input.readlines() #4700 lines
-	rotc = zeros((len(rotation)),dtype=float)
-	drot = zeros((len(rotation)),dtype=float)
+	rotc = zeros((len(rotation)),dtype=float32)
+	drot = zeros((len(rotation)),dtype=float32)
 	i=0
 	for value in rotation:
 		ha = float(value.split('\n')[0].split()[0])
@@ -631,7 +640,7 @@ def rotation_curve( (T,vec) ):
 		
 	# Array definition
 	true_dis = dbin*(0.5+arange(N))
-	vbgr = zeros(N,dtype=float)
+	vbgr = zeros(N,dtype=float32)
 	
 	report = open("report_"+species+".dat","w")
 	
@@ -660,8 +669,8 @@ def rotation_curve( (T,vec) ):
 				# Define intervals and heights: Equations (4)   
 				z = z_sun+true_dis*sin(glat)
 				r_proj = true_dis*cos(glat)
-				radi = sqrt(r_sun**2+r_proj**2-2*r_sun*r_proj*cos(glon)) # distance btw r_sun and r_proj
-					
+				radi = sqrt(r_sun**2+r_proj**2-2*r_sun*r_proj*cos(glon)) # distance from the GC
+				
 				# Bissantz & Gerhard velocities
 				xdir = ex_tan*cos(glon)+ex_norm*sin(glon)
 				ydir = ey_tan*cos(glon)+ey_norm*sin(glon)
@@ -861,25 +870,24 @@ def rotation_curve( (T,vec) ):
 						
 						if species == 'HI':	
 							for a in xrange(annuli):
-								if(r_proj[k] >= rmin[a]) and (r_proj[k] < rmax[a]):
+								if(radi[k] >= rmin[a]) and (radi[k] < rmax[a]):
 									cubemap[a,b,l] += wga*amp*sigma_line*C
-									#print cnt1
-								if (r_proj[k] > 50.):
-									print "Distance > 50. kpc! (%.2f)"%r_proj[k]
+								if (radi[k] > 50.):
+									print "Distance > 50. kpc! (%.2f)"%radi[k]
 						elif species == 'CO':
 							for a in xrange(annuli):
-								if(r_proj[k] >= rmin[a]) and (r_proj[k] < rmax[a]):
+								if(radi[k] >= rmin[a]) and (radi[k] < rmax[a]):
 									cubemap[a,b,l] += wga*amp*sigma_line
-								if (r_proj[k] > 50.):
-									print "Distance > 50. kpc! (%.2f)"%r_proj[k]
+								if (radi[k] > 50.):
+									print "Distance > 50. kpc! (%.2f)"%radi[k]
 						elif species == 'HISA':
 							for a in xrange(annuli):
-								if(r_proj[k] >= rmin[a]) and (r_proj[k] < rmax[a]):
-									amp = amp_frac*get_ampHISA('CGPS','MC1',r_proj[k],ivpeak,rspec[ivpeak])
+								if(radi[k] >= rmin[a]) and (radi[k] < rmax[a]):
+									amp = amp_frac*get_ampHISA('CGPS','MC1',radi[k],ivpeak,rspec[ivpeak])
 									amp = where(wcb>amp,amp,wcb)
 									cubemap[a,b,l] += wga*amp*(sigma_line*sqrt(8*log(2)))*C
-								if (r_proj[k] > 50.):
-									print "Distance > 50. kpc! (%.2f)"%r_proj[k]
+								if (radi[k] > 50.):
+									print "Distance > 50. kpc! (%.2f)"%radi[k]
 					
 					wgo = 1.-wgn
 
@@ -1385,18 +1393,27 @@ def getPath(surveyLogger, key="cgps_hi"):
 	if key=="lustre_cgps_hi":
 		path = True
 		return disk2+'/CGPS/HI/'
+	if key=="lustre_cgps_hi_split":
+		path = True
+		return disk2+'/CGPS/HI/split/'
 	if key=="lustre_cgps_hi_column_density":
 		path = True
 		return disk2+'/CGPS/HI/col_den/'
 	if key=="lustre_cgps_hisa":
 		path = True
 		return disk2+'/CGPS/HISA/'
+	if key=="lustre_cgps_hisa_split":
+		path = True
+		return disk2+'/CGPS/HISA/split/'
 	if key=="lustre_cgps_hisa_column_density":
 		path = True
 		return disk2+'/CGPS/HISA/col_den/'
 	if key=="lustre_cgps_co":
 		path = True
 		return disk2+'/CGPS/CO/'
+	if key=="lustre_cgps_co_split":
+		path = True
+		return disk2+'/CGPS/CO/split/'
 	if key=="lustre_cgps_co_column_density":
 		path = True
 		return disk2+'/CGPS/CO/col_den/'
@@ -1418,12 +1435,18 @@ def getPath(surveyLogger, key="cgps_hi"):
 	if key=="lustre_sgps_hi":
 		path = True
 		return disk2+'/SGPS/HI/'
+        if key=="lustre_sgps_hi_split":
+                path = True
+                return disk2+'/SGPS/HI/split/'
 	if key=="lustre_sgps_hi_column_density":
 		path = True
 		return disk2+'/SGPS/HI/col_den/'
 	if key=="lustre_sgps_hisa":
 		path = True
 		return disk2+'/SGPS/HISA/'
+        if key=="lustre_sgps_hisa_split":
+                path = True
+                return disk2+'/SGPS/HISA/split/'
 	if key=="lustre_sgps_hisa_column_density":
 		path = True
 		return disk2+'/SGPS/HISA/col_den/'
@@ -1432,12 +1455,14 @@ def getPath(surveyLogger, key="cgps_hi"):
 		surveyLogger.critical("Path '%s' doesn't exist."%key)
 		raise FileNotFound
 
-def getFile(surveyLogger,survey,mosaic,species,type,datatype):
+def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc):
 
 	# Select the file according to Survey and Mosaic
 	path = ''
 	flag = ''
 	sur = (survey).lower()
+	nmsc = int(nmsc)
+	totmsc = int(totmsc)
 
 	# GALPROP
 	if survey == 'Galprop':
@@ -1573,7 +1598,18 @@ def getFile(surveyLogger,survey,mosaic,species,type,datatype):
 			elif species == 'CO':				
 				path = getPath(surveyLogger, key='lustre_'+sur+'_co')
 				flag = species+'_line_lowres'
-			
+
+		elif datatype == 'split':
+			if nmsc==0: nmsc=1
+			if species == 'HI':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_split')
+				flag = '%s_unabsorbed_line_part_%i-%i'%(species,nmsc,totmsc)
+			elif species == 'HISA':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_hisa_split')
+				flag = '%s_line_part_%i-%i'%(species,nmsc,totmsc)
+			elif species == 'CO':				
+				path = getPath(surveyLogger, key='lustre_'+sur+'_co_split')
+				flag = '%s_line_part_%i-%i'%(species,nmsc,totmsc)
 
 	return	path,flag,mosaic
 

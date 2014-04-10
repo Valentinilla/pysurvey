@@ -13,6 +13,7 @@ from testModule import *
 from spectralAnalysis import *
 from spatialAnalysis import *
 from cleanMosaic import *
+from splitMosaic import *
 
 class Survey:
 	
@@ -168,7 +169,7 @@ class Survey:
 
 
 	#def loadMosaic(self,species='HI',type='brightness temperature'):
-	def loadMosaic(self,species='HI',type='brightness temperature',datatype='original'):
+	def loadMosaic(self,species='HI',type='brightness temperature',datatype='original',nmsc=1,totmsc=1):
 		"""
 		Load a mosaic.
 		Input parameters: 
@@ -184,7 +185,7 @@ class Survey:
 			#	del self.msc
 			#	self.logger.info("Free memory")
 			
-			self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,datatype)
+			self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,datatype,nmsc,totmsc)
 			#self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,load=True)
 			self.logger.info(self.ret.subn(', ',str(self.mosaic))[0])
 			
@@ -270,10 +271,10 @@ class Survey:
 			self.logger.critical("One or more needed files do not exist")
 			return
 
-	def combineMosaics(self,species='HI',type='column density',dim='2D'):
+	def combineMosaics(self,mosaic='skymap',species='HI',type='column density',dim='2D'):
 		
 		try:
-			self.skyregion = combineMosaics(self.surveyConf,self.mosaicConf,species,type,dim)
+			self.skyregion = combineMosaics(self.surveyConf,mosaic,species,type,dim)
 			self.logger.info(self.ret.subn(', ',str(self.skyregion))[0])
 			
 		except(FileNotFound):
@@ -308,6 +309,23 @@ class Survey:
 		checkForFiles(self.logger,[filename])
 		self.logger.info('Removing file: '+filename)
 		os.remove(filename)
+
+	def splitMosaic(self,num=1):
+		"""
+		Access mosaic's attributes through self.test
+		"""
+		try:
+			self.mosaic
+ 		except AttributeError:
+			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the 'loadMap' function.")
+			return
+		try:
+			self.split = splitMosaic(self.mosaic,num)
+			self.logger.info(self.ret.subn(', ',str(self.split))[0])
+			
+		except(FileNotFound):
+			self.logger.critical("One or more needed files do not exist")		
+
 
 	def testFunction(self,species='HI'):
 		"""

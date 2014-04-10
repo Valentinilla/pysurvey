@@ -80,7 +80,7 @@ class dsampleMosaic(object):
 		
 		# Output file			
 		results = pyfits.PrimaryHDU(data,obs.keyword)
-		self.logger.info("Write data to a fits file in...")
+		self.logger.info("Writing data to a fits file in...")
 		results.writeto(self.filename, output_verify='fix')
 		self.logger.info("%s"%path)
 		self.logger.info("Done")

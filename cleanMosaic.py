@@ -41,7 +41,7 @@ class cleanMosaic(object):
 
 		self.logger.info("Getting the data from...")
 		self.logger.info("%s"%obs.filename)
-				
+		
 		# Get emission data and velocity interval
 		Tb = obs.observation[:,:,:,:].astype(float32)
 		dv = fabs(obs.dz/1000.) # [velocity] = km s-1
@@ -54,15 +54,15 @@ class cleanMosaic(object):
 		del obs.zarray
 		
 		if self.species == 'HI':
-				
-			if self.survey == 'CGPS':
-				# Data correction
-				# Using Multiprocessing if enough cpus are available
-				import multiprocessing
-					
-				ncpu = 8#int(ceil(multiprocessing.cpu_count()/1))
-				self.logger.info("Running on %i cpu(s)"%(ncpu))
 
+			# Data correction
+			# Using Multiprocessing if enough cpus are available
+			import multiprocessing
+			ncpu = glob_ncpu#int(ceil(multiprocessing.cpu_count()/1))			
+			self.logger.info("Running on %i cpu(s)"%(ncpu))
+
+			if self.survey == 'CGPS' or self.survey == 'SGPS':
+				
 				self.logger.info("Smoothing negative pixels...")
 				if ncpu > 1:
 					samples_list = array_split(Tb[0,zmin:zmax,:,:], ncpu)
@@ -75,6 +75,8 @@ class cleanMosaic(object):
 					del results
 				else:
 					Tb[0,zmin:zmax,:,:] = correct_data(Tb[0,zmin:zmax,:,:])
+			
+			if self.survey == 'CGPS':
 				
 				# Get HI continuum data
 				pathc = getPath(self.logger, self.survey.lower()+'_hi_continuum')
@@ -119,9 +121,9 @@ class cleanMosaic(object):
 		results = pyfits.PrimaryHDU(Tb,obs.keyword)
 		if scale_data:
 			results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)
-			self.logger.info("Write scaled data to a fits file in...")
+			self.logger.info("Writing scaled data to a fits file in...")
 		else:
-			self.logger.info("Write data to a fits file in...")
+			self.logger.info("Writing data to a fits file in...")
 		results.writeto(file, output_verify='fix')
 		self.logger.info("%s"%path)
 		self.logger.info("Done")
