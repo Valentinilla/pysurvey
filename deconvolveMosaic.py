@@ -58,11 +58,11 @@ class deconvolveMosaic(object):
 
 		# free memory
 		del mosaic.observation
-		del mosaic.xarray
-		del mosaic.yarray
-		del mosaic.zarray
+		#del mosaic.xarray
+		#del mosaic.yarray
+		#del mosaic.zarray
 		
-		Ts = float(utilsConf['tspin'])	  	# [Excitation (or Spin) Temperature] = K (150)
+		Ts = float(utilsConf['tspin'])	  	# [Excitation (or Spin) Temperature] = K (125-150)
 		C = float(utilsConf['c'])	  	# [costant] = cm-2
 		
 		rmin,rmax,annuli = getAnnuli(glob_annuli)
@@ -76,7 +76,7 @@ class deconvolveMosaic(object):
 		
 		self.logger.info("Initializing parameters...")
 		self.logger.info("1) Ts = %.2f K"%Ts)
-		self.logger.info("2) dV = %.2f km/s"%dv)
+		self.logger.info("2) dv = %.2f km/s"%dv)
 		self.logger.info("3) Tb(min) = %.2f K, Tb(max) = %.2f K"%(amin(Tb),amax(Tb)))
 		self.logger.info("4) Rotation curve: '%s'"%rotcurve)
 		self.logger.info("5) Annuli: '%s'"%glob_annuli)
@@ -86,10 +86,14 @@ class deconvolveMosaic(object):
 		
 		list = []
 		if maxis == 1:
-			list = [self.species,lon,vel,dv,path2,C,Ts,rmin,rmax,rotcurve,maxis]
+			#list = [self.species,lon,vel,dv,path2,utilsConf,rmin,rmax,rotcurve,maxis]
+			#list = [mosaic,path2,utilsConf,rmin,rmax,rotcurve,maxis]#,self.logger]
+			#list = [mosaic,path2,rmin,rmax,rotcurve,maxis]#,self.logger]
 			coord = lat
 		elif maxis == 2:
-			list = [self.species,lat,vel,dv,path2,C,Ts,rmin,rmax,rotcurve,maxis]
+			#list = [self.species,lat,vel,dv,path2,utilsConf,rmin,rmax,rotcurve,maxis]
+			list = [1,self.survey,self.mosaic,self.species,lat,vel,mosaic.dy,dv,path2,utilsConf,rmin,rmax,rotcurve,maxis]
+			#list = [mosaic,path2,rmin,rmax,rotcurve,maxis]#,self.logger]
 			coord = lon
 		else:
 			self.logger.critical("ERROR in splitting Tb!")
@@ -105,10 +109,6 @@ class deconvolveMosaic(object):
 		if Tb.shape[maxis] < ncpu:
 			ncpu = Tb.shape[maxis]
 
-		#print coord.shape
-		#print coord.shape[0]/ncpu
-		#exit(0)		
-	
 		self.logger.info("Running on %i cpu(s)"%(ncpu))
 		if ncpu > 1:
 			import itertools		
@@ -166,6 +166,9 @@ class deconvolveMosaic(object):
 			newheader['object'] = ("Mosaic %s (%s/%s)"%(self.mosaic,self.nmsc,self.totmsc),"%s Mosaic (n/tot)"%self.survey)
 		newheader.add_history('Rotation curve: %s'%rotcurve)
 		newheader.add_history('Annuli: %s'%glob_annuli)
+		if not self.species == 'CO':
+			self.Ts = Ts
+			newheader.add_history('Spin temperature: %s K'%self.Ts)
 
 		# Output file
 		results = pyfits.PrimaryHDU(cubemap, newheader)

@@ -199,7 +199,7 @@ class makeCorrection(object):
 					lines = input.readlines()
 					
 					self.logger.info("Initializing parameters...")
-					self.logger.info("1) dV = %.2f km/s"%dv)
+					self.logger.info("1) dv = %.2f km/s"%dv)
 					self.logger.info("2) Tb(min) = %.2f K, Tb(max) = %.2f K"%(amin(Tb),amax(Tb)))
 					self.logger.info("3) Tc(min) = %.2f K, Tc(max) = %.2f K"%(amin(Tc),amax(Tc)))
 					galax_dist = open("galaxy_"+self.mosaic+"_"+self.species+".dat","w")

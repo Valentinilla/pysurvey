@@ -34,7 +34,7 @@ import pyfits
 glob_Tb  = 'brightness temperature'
 glob_ITb = 'integrated brightness temperature'
 glob_N   = 'column density'
-glob_ncpu = 1
+glob_ncpu = 14
 glob_annuli = 'Galprop' # Ackermann2012:Galprop
 #################################################
 #	START GENERAL FUNCTIONS
@@ -335,11 +335,52 @@ def correct_continuum2( (T,vec) ):
 	ny = T.shape[1]
 	nx = T.shape[2]
 
-	glon = vec[0]#xarray
-	glat = vec[1]#yarray
-	vel = vec[2]#zarray
+	glon = vec[0]
+	glat = vec[1]
+	vel = vec[2]
 	dv = vec[3]
 	mosaic = vec[4]
+
+	path = '/afs/ifh.de/group/that/work-sf/survey/batch/sgps/hi/regions/'
+	
+	def selection(file,region,zvec,drvec,location='up'):
+
+		input = open(file,'r')
+		regions = input.readlines()
+		
+		circle,x,y,r = [],[],[],[]
+		for value in regions:
+			if value[0:6] == 'circle':
+				if value.split('circle(')[1].split(',')[2].split(')')[1][1:2] == '#':
+					circle.append(value.split('text={')[1].split('}')[0])
+					xx = round(float(value.split('circle(')[1].split(',')[0]))
+					x.append(xx)
+					yy = round(float(value.split('circle(')[1].split(',')[1]))
+					y.append(yy)
+					rr = round(float(value.split('circle(')[1].split(',')[2].split(')')[0]))
+					r.append(1.)#rr)
+
+		if len(zvec) != 2*len(drvec):
+			print 'Error: zvec != 2*drvec in region %s'%region
+			print len(zvec), zvec
+			print 2*len(drvec), drvec
+			sys.exit(0)
+		
+		for i,c in enumerate(circle):
+			if c == region:
+				j=0
+				for k in xrange(0,len(zvec),2):
+					r[i] = drvec[j]#r[i]+drvec[j]
+					k1 = zvec[k]-2
+					k2 = zvec[k+1]+1
+					y1 = y[i]-r[i]
+					y2 = y[i]+r[i]
+					x1 = x[i]-r[i]
+					x2 = x[i]+r[i]
+					#print k,k+1,k1,k2,j,drvec[j],len(zvec)
+					T[k1:k2,y1:y2,x1:x2]=patching(T,x1,x2,y1,y2,k1,k2,location=location)
+					j += 1
+
 	
 	if mosaic == 'G258.0':
 		# Region 1a		
@@ -425,8 +466,262 @@ def correct_continuum2( (T,vec) ):
 		T[z21e:z22e,y21e:y22e,x21e:x22e] = patching(T,x21e,x22e,y21e,y22e,z21e,z22e)
 		T[z21f:z22f,y21f:y22f,x21f:x22f] = patching(T,x21f,x22f,y21f,y22f,z21f,z22f)
 	
-	#if mosaic == 'G288.0':
+	if mosaic == 'G288.0':
+		file = path+'regions288.dat'
+				
+		z1a = [94,96,143,163]
+		selection(file,'r1a',z1a,[10,50],location='right')
+		z1b = [96,143]
+		selection(file,'r1b',z1b,[40],location='up')
+		z1c = [88,96,96,143]
+		selection(file,'r1c',z1c,[5,60],location='up')
+		z1d = [94,96,96,117,132,139]
+		selection(file,'r1d',z1d,[5,20,20],location='left')
+		z1e = [96,117]
+		selection(file,'r1e',z1e,[28],location='right')
 		
+		z2a = [102,112]
+		selection(file,'r2a',z2a,[5])
+		z2b = [84,104,104,112,126,136]
+		selection(file,'r2b',z2b,[15,8,15])
+		z2c = [66,115,125,136]
+		selection(file,'r2c',z2c,[15,15])
+		z2d = [93,106,106,110]
+		selection(file,'r2d',z2d,[20,5])
+		z2e = [80,110,110,112]
+		selection(file,'r2e',z2e,[25,5],location='right')
+		z2f = [80,105,105,109]
+		selection(file,'r2f',z2f,[15,5],location='left')
+		z2g = [92,110]
+		selection(file,'r2g',z2g,[18],location='left')
+
+		z3a = [128,138,138,169,202,216,220,234,276,284]
+		selection(file,'r3a',z3a,[5,18,5,5,3])
+
+		z4a = [109,150]
+		selection(file,'r4a',z4a,[35])
+		
+		z5a = [96,108,108,147,147,151]
+		selection(file,'r5a',z5a,[10,50,5])
+
+	if mosaic == 'G298.0':
+		file = path+'regions298.dat'
+		
+		z1a = [104,133,155,165]
+		selection(file,'r1a',z1a,[10,10],location='right')
+		z2a = [106,203]
+		selection(file,'r2a',z2a,[20],location='down')
+		z3a = [104,140,140,207]
+		selection(file,'r3a',z3a,[20,30],location='down')
+
+	if mosaic == 'G308.0':
+		file = path+'regions308.dat'
+		
+		z1a = [10,141,170,183]
+		selection(file,'r1a',z1a,[10,18],location='right')
+
+		z2a = [106,203]
+		selection(file,'r2a',z2a,[20],location='down')
+
+		z3a = [108,153,167,185,234,243]
+		selection(file,'r3a',z3a,[10,10,10],location='down')
+
+		z4a = [87,101,101,112,112,141,141,144,144,155,169,181]
+		selection(file,'r4a',z4a,[10,20,38,30,26,40],location='down')		
+		z4b = [170,180]
+		selection(file,'r4b',z4b,[10],location='right')	
+
+	if mosaic == 'G318.0':
+		file = path+'regions318.dat'
+		
+		z1a = [119,135,144,182,184,203]
+		selection(file,'r1a',z1a,[30,18,10],location='right')
+
+		z2a = [136,161,162,184,189,203]
+		selection(file,'r2a',z2a,[15,15,15],location='right')
+		
+		z3a = [92,140,165,174,186,254,297,306]
+		selection(file,'r3a',z3a,[8,8,8,8],location='right')
+		z3b = [110,136,163,177,182,201]
+		selection(file,'r3b',z3b,[8,15,5],location='right')
+		z3c = [97,203]
+		selection(file,'r3c',z3c,[15],location='up')
+		z3d = [125,137,148,176,179,188,189,198]
+		selection(file,'r3d',z3d,[8,15,10,10],location='right')
+
+		z4a = [194,198]
+		selection(file,'r4a',z4a,[10],location='right')
+		z4b = [103,183]
+		selection(file,'r4b',z4b,[5],location='right')
+		z4c = [124,174,186,198]
+		selection(file,'r4c',z4c,[3,3],location='right')
+		z4d = [116,206]
+		selection(file,'r4d',z4d,[3],location='right')
+
+		z5a = [126,129,129,160,160,168,168,176,176,186,186,199,199,203]
+		selection(file,'r5a',z5a,[5,40,8,40,8,40,5],location='right')
+		z5b = [118,154,189,202]
+		selection(file,'r5b',z5b,[3,3],location='right')
+
+		z6a = [112,179,192,200]
+		selection(file,'r6a',z6a,[4,5],location='right')
+
+	if mosaic == 'G328.0':
+		file = path+'regions328.dat'
+		
+		z1a = [158,236]
+		selection(file,'r1a',z1a,[5],location='right')
+		z1b = [147,152,152,175,175,184,192,202,202,210,210,212,225,235]
+		selection(file,'r1b',z1b,[13,20,15,15,24,13,13],location='up')
+		z1c = [147,157]
+		selection(file,'r1c',z1c,[5],location='up')
+		z1d = [157,173,173,180,194,200,200,209,209,216,226,232]
+		selection(file,'r1d',z1d,[30,5,15,30,5,5],location='up')
+		z1e = [146,149,149,165,165,191,197,199,199,210,210,213,223,237]
+		selection(file,'r1e',z1e,[5,40,5,5,40,5,5],location='up')
+
+		z2a = [96,104,104,127,127,139,139,183,183,202,202,208,208,215,219,237]
+		selection(file,'r2a',z2a,[5,40,5,40,5,40,5,10],location='right')
+		z2b = [231,236]
+		selection(file,'r2b',z2b,[10],location='down')
+		z2c = [140,155,169,188,193,203,203,205,231,236]
+		selection(file,'r2c',z2c,[5,4,5,14,5],location='down')
+		z2d = [141,158,167,174,226,234]
+		selection(file,'r2d',z2d,[5,10,4],location='up')
+		z2e = [136,218,220,235]
+		selection(file,'r2e',z2e,[10,5],location='up')
+		z2f = [139,176,201,211,219,225]
+		selection(file,'r2f',z2f,[4,4,4],location='down')
+
+		z3a = [196,202]
+		selection(file,'r3a',z3a,[5],location='left')
+		z3b = [98,122,130,148,156,195,202,214]
+		selection(file,'r3b',z3b,[4,5,6,6],location='left')
+		z3c = [83,243,254,268]
+		selection(file,'r3c',z3c,[7,7],location='left')
+		z3d = [164,178,196,212,218,234]
+		selection(file,'r3d',z3d,[5,10,10],location='left')
+		z3e = [158,185,200,214]
+		selection(file,'r3e',z3e,[5,6],location='right')
+		z3f = [128,151,177,179]
+		selection(file,'r3f',z3f,[8,8],location='left')
+		z3g = [150,156,156,158,158,177,177,179,179,182,182,185,204,215,219,234]
+		selection(file,'r3g',z3g,[8,40,50,40,50,40,50,50],location='right')
+		z3gb = [185,188,196,203,235,239]
+		selection(file,'r3g',z3gb,[20,10,20],location='up')
+		z3h = [182,185]
+		selection(file,'r3h',z3h,[12],location='up')
+
+		z4a = [158,163,163,181,181,185,185,194,194,199,199,212,212,214,219,220,220,227,227,235]
+		selection(file,'r4a',z4a,[14,40,5,40,20,40,8,15,35,15],location='left')
+		z4b = [217,220,227,234]
+		selection(file,'r4b',z4b,[8,8],location='right')
+
+		z5a = [104,126,142,153,198,213,227,234]
+		selection(file,'r5a',z5a,[8,8,8,8],location='right')
+	
+	if mosaic == 'G338.0':
+		file = path+'regions338.dat'
+		
+		z1a = [150,165,175,207,214,220,229,247]
+		selection(file,'r1a',z1a,[5,5,5,5],location='right')
+		z1ab = [209,213,250,257]
+		selection(file,'r1a',z1ab,[5,5],location='left')
+		z1b = [220,223,251,254]
+		selection(file,'r1b',z1b,[8,5],location='right')
+
+		z2a = [186,212,222,234,248,253]
+		selection(file,'r2a',z2a,[6,6,6],location='right')
+		z2b = [212,216,219,226]
+		selection(file,'r2b',z2b,[10,10],location='right')
+		z2c = [204,206,206,217,217,220,221,237,237,251,251,258]
+		selection(file,'r2c',z2c,[5,20,5,15,5,15],location='right')
+
+		z3a = [165,178,178,184,221,229,243,254]
+		selection(file,'r3a',z3a,[8,6,6,7],location='right')
+		z3b = [87,121,124,162,174,190,215,224]
+		selection(file,'r3b',z3b,[15,15,12,12],location='right')
+		z3bb = [190,215,242,244,244,255]
+		selection(file,'r3b',z3bb,[18,18,15],location='left')
+		z3c = [95,115,122,147,150,166,179,260]
+		selection(file,'r3c',z3c,[3,3,3,3],location='left')
+		z3d = [92,155,156,165,174,215,219,221,221,228,234,238]
+		selection(file,'r3d',z3d,[7,7,7,7,20,7],location='up')
+		z3db = [240,249,251,254]
+		selection(file,'r3d',z3db,[7,7],location='left')
+		z3e = [172,199,199,206,206,239,245,257]
+		selection(file,'r3e',z3e,[5,30,5,5],location='right')
+
+		z4a = [92,147,147,163,185,190,190,210,212,215,215,230,230,246,249,254]
+		selection(file,'r4a',z4a,[14,8,8,14,12,15,13,10],location='right')
+		z4b = [90,97,97,117,117,139,139,164,191,207]
+		selection(file,'r4b',z4b,[5,25,5,25,5],location='down')
+		z4bb = [207,217,217,231,231,233,233,256]
+		selection(file,'r4b',z4bb,[22,25,23,5],location='up')
+		z4c = [87,93,98,107,107,115,127,140,140,147,196,207,207,212,214,228,228,232]
+		selection(file,'r4c',z4c,[14,8,14,14,5,14,5,20,5],location='right')
+
+		z5a = [187,195,198,200,222,227]
+		selection(file,'r5a',z5a,[5,5,5],location='up')
+		z5b = [182,242,246,255]
+		selection(file,'r5b',z5b,[5,5],location='left')
+
+		z5c = [150,154,154,173,173,205,205,214,214,237,237,238,243,246,246,249,249,257]
+		selection(file,'r5c',z5c,[5,35,40,5,40,15,5,40,10],location='left')
+		z5d = [205,214,242,246,249,255]
+		selection(file,'r5d',z5d,[6,6,5],location='down')
+		z5e = [164,168,168,173,173,205,207,216,216,233,243,245,245,254]
+		selection(file,'r5e',z5e,[8,15,35,15,35,5,13],location='up')
+
+	if mosaic == 'G348.0':
+		file = path+'regions348.dat'
+		
+		z1a = [279,283,283,323]
+		selection(file,'r1a',z1a,[8,29],location='right')
+
+		z2a = [281,304]
+		selection(file,'r2a',z2a,[5],location='right')
+		z2b = [270,280,280,288,288,315,315,316]
+		selection(file,'r2b',z2b,[5,25,45,25],location='left')
+		z2c = [151,158,171,202,233,314]
+		selection(file,'r2c',z2c,[8,8,8],location='right')
+		z2d = [253,266,274,314]
+		selection(file,'r2d',z2d,[10,10],location='right')
+
+		z3a = [5,52,68,75,88,110,148,159,159,162,162,178,178,181,181,198,217,221,221,234,234,241,244,268,268,313]
+		selection(file,'r3a',z3a,[5,5,5,5,35,40,30,5,5,36,5,5,36],location='left')
+		z3b = [269,283,286,295]
+		selection(file,'r3b',z3b,[5,5],location='left')
+		z3c = [257,302]
+		selection(file,'r3c',z3c,[5],location='left')
+		z3d = [184,230,264,272,285,293]
+		selection(file,'r3d',z3d,[4,4,5],location='down')
+		z3db = [285,289]
+		selection(file,'r3d',z3db,[21],location='up')
+		z3e = [95,109,141,163,163,206,244,262,264,271,273,279,283,295,300,306]
+		selection(file,'r3e',z3e,[5,5,6,5,10,10,10,6],location='up')
+		z3f = [148,215,268,295,300,304]
+		selection(file,'r3f',z3f,[8,8,8],location='left')
+		z3g = [282,291]
+		selection(file,'r3g',z3g,[5],location='left')
+		z3h = [5,81,281,291,302,312]
+		selection(file,'r3h',z3h,[5,10,10],location='right')
+		z3i = [246,259,259,270,270,276,276,294,294,306,306,312,312,315]
+		selection(file,'r3i',z3i,[5,35,10,35,10,35,8],location='up')
+		z3l = [255,257,257,265,265,279,281,306,306,311,311,315]
+		selection(file,'r3l',z3l,[5,35,10,5,25,5],location='right')
+
+		z4a = [264,287,297,314]
+		selection(file,'r4a',z4a,[6,6],location='down')		
+		z4b = [150,164,269,287,311,313]
+		selection(file,'r4b',z4b,[5,7,10],location='right')
+		z4c = [242,255,255,317]
+		selection(file,'r4c',z4c,[5,44],location='right')
+		z4d = [205,228]
+		selection(file,'r4d',z4d,[4],location='up')
+		z4e = [253,276,306,313,]
+		selection(file,'r4e',z4e,[5,5],location='up')
+
 	return T
 
 	
@@ -442,6 +737,7 @@ def patching(ar,x1,x2,y1,y2,z1,z2,location='up'):
 	sample = array(region)#.shape)
 	delx = int(fabs(x2-x1))
 	dely = int(fabs(y2-y1))
+	
 	if location == 'up':
 		sample = ar[z1:z2,y2:y2+dely,x1:x2]
 		#sample  = sample[:,::-1,:]
@@ -451,27 +747,36 @@ def patching(ar,x1,x2,y1,y2,z1,z2,location='up'):
 		sample = ar[z1:z2,y1:y2,x1-delx:x1]
 	elif location == 'right':
 		sample = ar[z1:z2,y1:y2,x2:x2+delx]
-
+	
 	delta = int(fabs(z1-z2))
 	dx,dy = 1,1
 	p1 = zeros((delta))
 	p2 = zeros((delta))
 	p3 = zeros((delta))
 	for z in xrange(delta):
-		p1[z] = mean(ar[z1+z,y2:y2+dy,x1:x2])
-		p2[z] = mean(ar[z1+z,y1:y2,x1-dx:x2])
-		p3[z] = mean(ar[z1+z,y1:y2,x2:x2+dx])
-		
+		if size(ar[z1+z,y2:y2+dy,x1:x2])==0.: 
+			p1[z]=1.
+		else:
+			p1[z] = mean(ar[z1+z,y2:y2+dy,x1:x2])
+		if size(ar[z1+z,y1:y2,x1-dx:x2])==0.:
+			p2[z]=1.
+		else:
+			p2[z] = mean(ar[z1+z,y1:y2,x1-dx:x2])
+		if size(ar[z1+z,y1:y2,x2:x2+dx])==0.:
+			p3[z]=1.
+		else:
+			p3[z] = mean(ar[z1+z,y1:y2,x2:x2+dx])
+	
 	x0 = region.shape[-1]/2.
 	y0 = region.shape[-2]/2.
 	radius = max(x0,y0)
 	output = array(region)
-
+	
 	wmaxp = zeros((delta))
 	for z in xrange(delta):
 		wmaxp[z] = max(p1[z],p1[z],p3[z])
 	wmax = amax(wmaxp)
-		
+	
 	#weights = (p1[:]+p2[:]+p3[:])/3.
 	for x in xrange(0,region.shape[-1]):
 		for y in xrange(0,region.shape[-2]):
@@ -479,6 +784,7 @@ def patching(ar,x1,x2,y1,y2,z1,z2,location='up'):
 			if distance <= radius:
 				spec = sample[:,y,x]
 				maxval = amax(spec)
+				if maxval == 0.: maxval = 1.
 				output[:,y,x] = (spec/maxval)*wmax
 				for z in xrange(int(z2-z1)):
 					if amax(output[z,y,x]) > wmaxp[z]:
@@ -486,6 +792,7 @@ def patching(ar,x1,x2,y1,y2,z1,z2,location='up'):
 						#plotFunc(arange(100),[s])
 						#exit(0)
 						output[z,y,x] = s[50]
+	
 	for z in xrange(delta):
 		output[z,:,:] = ndimage.gaussian_filter(output[z,:,:],sigma=(1,1),order=(0,0))
 	for x in xrange(0,region.shape[-1]):
@@ -493,7 +800,6 @@ def patching(ar,x1,x2,y1,y2,z1,z2,location='up'):
 			distance = sqrt((x-x0)**2 + (y-y0)**2)
 			if distance >= radius:
 				output[:,y,x] = region[:,y,x]
-
 	return output
 
 # HI correction
@@ -719,7 +1025,6 @@ def RotCurveBissantz2003(parlist):
 	Gas-flow simulation of the inner Galaxy using smoothed particle 
 	hydrodynamics (SPH) and a realistic barred gravitational potential
 	derived from the observed COBE DIRBE near-IR light distribution.
-
 	(N.Bissantz et al, 2003)
 	'''
 
@@ -967,35 +1272,62 @@ def Deconvolution( (T,coord,vec) ):
 	"""
 	Deconvolution technique - M.Pohl, P.Englmaier, and N.Bissantz
 	(The Astrophysical Journal, 677:283-291, 2008)
-	Limits: galactic longitude < |165 deg|
+	Limits for Bissantz2003 rotation curve: galactic longitude < |165 deg|
 	"""
-	
-	species = vec[0]
-	vel = vec[2]
-	dv = vec[3]
-	path = vec[4]
-	C = vec[5]
-	Ts = vec[6]
-	rmin = vec[7]
-	rmax = vec[8]
-	rotcurve = vec[9]
-	maxis = vec[10]
-	
-	annuli = len(rmin)
+	#[self.logger,self.survey,self.mosaic,self.species,lat,vel,dy,dv,path2,utilsConf,rmin,rmax,rotcurve,maxis]
+	#(vec[0],survey,mosaic,dy,dv,r,ivpeak,Tpeak,l,b,sigma_line)
+	if 1:
+		survey = vec[1]
+		mosaic = vec[2]
+		species = vec[3]
+		vel = vec[5]
+		dy = vec[6]
+		dv = vec[7]
+		path = vec[8]
+		C = float(vec[9]['c'])
+		Ts = float(vec[9]['tspin'])
+		rmin = vec[10]
+		rmax = vec[11]
+		rotcurve = vec[12]
+		maxis = vec[13]
+
+		annuli = len(rmin)		
+
+		if maxis == 1:
+			lon = vec[4]
+			lat = coord
+		elif maxis == 2:
+			lon = coord
+			lat = vec[4]
+
+	#[self.species,lat,vel,dv,path2,utilsConf,rmin,rmax,rotcurve,maxis]
+	if 0:
+		species = vec[0]
+		vel = vec[2]
+		dv = vec[3]
+		path = vec[4]
+		C = float(vec[5]['c'])
+		Ts = float(vec[5]['tspin'])
+		rmin = vec[6]
+		rmax = vec[7]
+		rotcurve = vec[8]
+		maxis = vec[9]
+		
+		annuli = len(rmin)
+		
+		if maxis == 1:
+			lon = vec[1]
+			lat = coord
+		elif maxis == 2:
+			lon = coord
+			lat = vec[1]
 
 	nlon = T.shape[2]
 	nlat = T.shape[1]
 	nvel = T.shape[0]
-
-	if maxis == 1:
-		lon = vec[1]
-		lat = coord
-	elif maxis == 2:
-		lon = coord
-		lat = vec[1]
 	
 	# free memory
-	del vec
+	#del vec
 
 	# Array to store results
 	cubemap = zeros((annuli,nlat,nlon),dtype=float32)
@@ -1004,7 +1336,7 @@ def Deconvolution( (T,coord,vec) ):
 	# Line properties
 	sigma = 0. 		# velocoty dispersion (standard deviation of the distribution)
 	if species == 'HI' or species == 'HI_unabsorbed':
-		sigma = 4.#4.	#hi velocity dispersion (from LAB) [km s-1]
+		sigma = 4.	#hi velocity dispersion (from LAB) [km s-1]
 	elif species == 'CO':
 		sigma = 3.	#co velocity dispersion [km s-1]
 	elif species == 'HISA':
@@ -1050,12 +1382,13 @@ def Deconvolution( (T,coord,vec) ):
 	gal_thick = 1. 		#kpc
 	dbin = 1/gal_radius 	#50 pc
 	r_scale = 10. 		#radial scale [kpc]
-		
+	Tbg = 2.66		# Tb of microwave background at 21 cm [K]
+	
 	# Cuts
 	v_offset = 10.		#velocity offset [10 km/s]
 	lon_inner = 20.		#inner Galaxy longitude (|l|<=20) [deg]
 	residual_line = 1.	#threshold of residual line spectrum [K km/s]
-	amp_frac = 0.2		#percentage of the peak value [x100 %]
+	amp_frac = 0.1#0.2		#percentage of the peak value [x100 %]
 	
 	N = 760
 	
@@ -1070,12 +1403,10 @@ def Deconvolution( (T,coord,vec) ):
 		gmax = 180. # +180, -180(=360)
 
 	condition = 1
-
+	
 	for l in xrange(0,nlon):
 		glo_deg = lon[l]
 		#print "%i) longitude: %.3f deg"%(l,lon[l])
-		#print abs(glo_deg)
-		#exit(0)
 		if condition:#(abs(glo_deg) <= gmax):
 			glon = radians(glo_deg)
 			dismin = floor(r_sun*abs(cos(glon))/dbin)
@@ -1087,6 +1418,31 @@ def Deconvolution( (T,coord,vec) ):
 				#print "  %i) latitude: %.3f"%(b,lat[b])
 				gla_deg = lat[b]
 				glat = radians(gla_deg)
+
+				# Line spectrum
+				spec = array(nvel)
+				spec = T[:,b,l]
+				spec[0] = 0.
+				spec[-1] = 0.
+				rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
+				#rspec = fftconvolve(spec,lim,mode='same')
+				
+				zero_avg = 0.
+				idx_zero_avg = where(rspec<0)
+				
+				if size(idx_zero_avg[0]) > 0:
+					zero_avg = mean(rspec[idx_zero_avg])
+				#print zero_avg,abs(dv*sum(spec)),abs(dv*sum(spec-zero_avg))
+				
+				if not spec.any() != 0.:
+					#plotFunc(vel,[spec,rspec],['spec','rspec'])
+					continue
+				#else:
+					#continue
+					#plotFunc(vel,[spec,rspec],['spec','rspec'])
+				
+				spec = spec-zero_avg		
+				rspec = rspec-zero_avg
 				
 				# Define intervals and heights: Equations (4)   
 				z = z_sun+true_dis*sin(glat)
@@ -1104,46 +1460,26 @@ def Deconvolution( (T,coord,vec) ):
 					veff,dveff,weight_veff = RotCurveClemens1985(parlist)
 				#plotFunc(r_proj,[veff,veff2],['Bissantz 2003','Clemens 1985'],position='lower right')
 				#exit(0)
-				
-				# Line spectrum
-				spec = array(nvel)
-				spec = T[:,b,l]
-				spec[0] = 0.
-				spec[nvel-1] = 0.
-				rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
-				#rspec = fftconvolve(spec,lim,mode='same')
-				
-				zero_avg = 0.
-				idx_zero_avg = where(rspec<0)
-				if size(idx_zero_avg) > 0:
-					zero_avg = mean(rspec[idx_zero_avg])
-				#print zero_avg,abs(dv*sum(spec)),abs(dv*sum(spec-zero_avg))
-				#plotFunc(vel,[spec,rspec],['spec','rspec','rspec2'])
-				#exit(0)
-				spec = spec-zero_avg		
-				rspec = rspec-zero_avg		
 
 				wco = fabs(dv*sum(spec))
 				wcb = wco/sigma_line
 				wco_previous = 0
 				cnt1 = 0
 
+				#if species == 'HISA':
+				#	wamp = get_ampHISA(survey,mosaic,r,ivmax,Tmax)
+				#	for a in xrange(annuli):
+				#		if(radi[j] > rmin[a]) and (radi[j] <= rmax[a]):
+				#			cubemap[a,b,l] += wamp
+				#		if (radi[j] > 50.):
+				#			print "Distance > 50. kpc! (%.2f)"%radi[j]
+
 				# Start deconvolution
 				while(wco > residual_line):
 					
 					ivpeak = argmax(rspec)
 					vpeak = vel[ivpeak]
-					
-					if species == 'HI' or species == 'HI_unabsorbed':
-						amp = amp_frac*log(Ts/(Ts-rspec[ivpeak]))*Ts
-						amp = where(wcb>amp,amp,wcb)
-					elif species == 'CO':			
-						amp = amp_frac*rspec[ivpeak]
-						amp = where(wcb>amp,amp,wcb)
-					#elif species == 'HISA':
-					#	amp = amp_frac*get_ampHISA(survey,rspec[ivpeak])
-					
-					#amp = where(wcb>amp,amp,wcb)
+										
 					ivlow = ivpeak-ivzero
 					ivhigh = ivpeak+ivzero+1
 					
@@ -1227,6 +1563,17 @@ def Deconvolution( (T,coord,vec) ):
 						
 					wtot = sum(wa)
 					wgn = 0.
+
+					if species == 'HI' or species == 'HI_unabsorbed':
+						if rspec[ivpeak] > Ts-5: rspec[ivpeak] = Ts-5
+						amp = amp_frac*log((Ts-Tbg)/(Ts-Tbg-rspec[ivpeak]))*Ts
+						amp = where(wcb>amp,amp,wcb)
+					elif species == 'CO':			
+						amp = amp_frac*rspec[ivpeak]
+						amp = where(wcb>amp,amp,wcb)
+					#elif species == 'HISA':
+					#	amp = amp_frac*get_ampHISA(vec[7],vec[0],vec[2],r_proj,ivpeak,rspec[ivpeak],l,b,sigma_line)
+					#	amp = where(wcb>amp,amp,wcb)
 					
 					# add intensity line (= sigma_line*amp) to cubemap
 					for i,j in enumerate(ilocation):
@@ -1239,13 +1586,15 @@ def Deconvolution( (T,coord,vec) ):
 							wamp = wga*amp*sigma_line*C
 						elif species == 'CO':
 							wamp = wga*amp*sigma_line
-						elif species == 'HISA':
-							amp = amp_frac*get_ampHISA('CGPS','MC1',radi[k],ivpeak,rspec[ivpeak])
-							amp = where(wcb>amp,amp,wcb)
-							wamp = wga*amp*(sigma_line*sqrt(8*log(2)))*C
+						#elif species == 'HISA':
+						#	wamp = wga*amp*sigma_line*C#(sigma_line*sqrt(8*log(2)))*C
 
 						for a in xrange(annuli):
 							if(radi[j] > rmin[a]) and (radi[j] <= rmax[a]):
+								if species == 'HISA':
+									amp = amp_frac*get_ampHISA(survey,mosaic,dy,dv,r_proj[j],ivpeak,rspec[ivpeak],l,b,sigma_line,vec[9])
+									amp = where(wcb>amp,amp,wcb)
+									wamp = wga*amp*sigma_line*C
 								cubemap[a,b,l] += wamp
 							if (radi[j] > 50.):
 								print "Distance > 50. kpc! (%.2f)"%radi[j]
@@ -1268,8 +1617,8 @@ def Deconvolution( (T,coord,vec) ):
 					if cnt1 > 600:
 						string = "\ncnt1 = %i\n"%(cnt1)
 						string += "[glo,glat] = [%.4f,%.4f] - [l,b] = [%i,%i]\n"%(glo_deg,gla_deg,l,b)
-						string += "1) wco = %.3f\n"%(wco)
-						string += "2) wco = %.3f, wco_previous = %.3f\n"%(wco,wco_previous)
+						string += "1) wco_previous = %.3f\n"%(wco_previous)
+						string += "2) wco = %.3f\n"%(wco)
 						report.write(string)
 					
 					#print "wco = %.3f, wco_previous = %.3f"%(wco,wco_previous)
@@ -1297,49 +1646,43 @@ def Deconvolution( (T,coord,vec) ):
 #################################################
 # END ROTATION CURVE
 #################################################
-def get_ampHISA(survey,mosaic,r,ivmax,Tmax):#,utilsConf):
 
-	sur = survey.lower()
-	Tcmb = 2.7 # Cosmic Microwave Background temperature (K)
-	C = 1.823e18 # Costant (cm-2)
-	pc2cm = 3.08567758e18 # Conversion factor from pc to cm (cm)
-	poverk = 4000.
-	p = 1.0 # Fraction of HI emission originating behind the HISA cloud
-	fn = 1.0 
+def get_ampHISA(survey,mosaic,dy,dv,r,ivpeak,Tpeak,l,b,sigma_line,utilsConf):
+	
+	Tcmb = float(utilsConf['tcmb'])
+	C = float(utilsConf['c']) # Costant (cm-2)
 
-	surveyLogger = initLogger(survey+'_'+mosaic+'_getHISA')
 	# Get data files
 	# HI continuum
-	pathc = getPath(surveyLogger,sur+'_hi_continuum')
+	#pathc = getPath(surveyLogger,survey.lower()+'_hi_continuum')
+	pathc = '/afs/ifh.de/group/that/data/Radio/skymaps/continuum/'+survey.lower()+'/'
 	continuum = pathc+survey+'_'+mosaic+'_1420_MHz_I_image.fits'
-	checkForFiles(surveyLogger,[continuum])
+	#checkForFiles(surveyLogger,[continuum])
 	Tc, headerc = pyfits.getdata(continuum,0,header=True)
 	Tc[isnan(Tc)] = 0.
-	if survey == 'CGPS':
+	if survey == 'CGPS' or survey == 'VGPS':
 		Tc = Tc[0,0,:,:]
 	if survey == 'SGPS':
 		Tc = Tc[:,:]
 	# HI unabsorbed
-	pathu = getPath(surveyLogger,sur+'_hisa_dat')
-	unabsorbed = pathu
-	checkForFiles(surveyLogger,[unabsorbed])
+	#pathu = getPath(surveyLogger,'lustre_'+survey.lower()+'_hi_unabsorbed')
+	pathu = '/lustre/fs4/group/that/sf/Surveys/'+survey+'/HI_unabsorbed/'
+	unabsorbed = pathu+survey+'_'+mosaic+'_HI_unabsorbed_line.fits'
+	#checkForFiles(surveyLogger,[unabsorbed])
 	Tu, headeru = pyfits.getdata(unabsorbed,0,header=True)
+	Tu = Tu[0,:,:,:]
 	
 	# Define params
 	amplitude = 0.
-
-	#C = float(utilsConf['c'])
-	#Tcmb = float(utilsConf['tcmb'])
-
-	theta = radians(mosaic.dy) #rad
+	
+	theta = radians(dy) #rad
 	ds = r*tan(theta)*1e3 #pc
 		
-	A1 = pc2cm*poverk #float(utilsConf['pc2cm'])*float(utilsConf['poverk'])
-	A2 = fn*ds/(C*dv) #float(utilsConf['fn'])*ds/(C*dv)
+	A1 = float(utilsConf['pc2cm'])*float(utilsConf['poverk'])
+	A2 = float(utilsConf['fn'])*ds/(C*sigma_line)#dv)
 	A = A1*A2
-		
-	#B = Tc[b,l]+float(utilsConf['p'])*Tu[ivmax,b,l]
-	B = Tc[b,l]+p*Tu[ivmax,b,l]
+	
+	B = Tc[b,l]+float(utilsConf['p'])*Tu[ivpeak,b,l]
 	
 	init = [1.,10.]
 	def equations(xx):
@@ -1349,7 +1692,7 @@ def get_ampHISA(survey,mosaic,r,ivmax,Tmax):#,utilsConf):
 		'''
 		tt, T = xx
 		# Equation (6)
-		Tfunc = (T-B)/(T-B-Tmax)
+		Tfunc = (T-B)/(T-B-Tpeak)
 		if Tfunc<1.:
 			Tfunc = 1.# Tbg # <------ TO JUSTIFY
 		f1 = log(Tfunc)-tt
@@ -1359,24 +1702,24 @@ def get_ampHISA(survey,mosaic,r,ivmax,Tmax):#,utilsConf):
 			ttfunc = 0.# <------ TO JUSTIFY
 		f2 = sqrt(ttfunc)-T
 										
-		return array([f1, f2], dtype=float)
+		return array([f1, f2], dtype=float32)
 		
+	#from scipy.optimize import fsolve
 	(tau,Ts),infodict,ier,mesg = fsolve(equations,init,full_output=1)
 	#plotFunc(tau,Ts)
 	TsMin = Tcmb
 	if Ts < TsMin:
 		Ts = TsMin
-		Tfunc = (Ts-B)/(Ts-B-Tmax)
+		Tfunc = (Ts-B)/(Ts-B-Tpeak)
 		tau = log(Tfunc)
-	#TsMax = Tc[b,l]+(Tmax+Tu[ivmax,b,l])+(float(utilsConf['p'])-1.)*Tu[ivmax,b,l]
-	TsMax = Tc[b,l]+(Tmax+Tu[ivmax,b,l])+(p-1.)*Tu[ivmax,b,l]
+	TsMax = Tc[b,l]+(Tpeak+Tu[ivpeak,b,l])+(float(utilsConf['p'])-1.)*Tu[ivpeak,b,l]
 	if Ts > TsMax:
 		# For Ts = TsMax, tau --> +oo
 		Ts = TsMax
 		tau = 1e4
 	if tau < 0.:
 		Ts = 0.
-		tau = log(B/(B+Tmax))
+		tau = log(B/(B+Tpeak))
 	
 	#print Ts,tau
 	solution = False
@@ -1389,6 +1732,7 @@ def get_ampHISA(survey,mosaic,r,ivmax,Tmax):#,utilsConf):
 		amplitude = 0.
 	
 	return amplitude
+
 #################################################
 # START COMBINE 
 #################################################
@@ -2480,8 +2824,8 @@ def getPath(surveyLogger, key="cgps_hi"):
 		path = True
 		return data1+'/hi/VGPS/'
 	if key=="vgps_hi_continuum":
-		surveyLogger.critical("No continuum data available for this survey!")
-		raise FileNotFound
+		path = True
+		return data1+'/continuum/vgps/'
 	if key=="vgps_hisa_dat":
 		path = True
 		return result1+'/vgps/results/'

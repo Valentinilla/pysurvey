@@ -25,6 +25,8 @@ class cleanMosaic(object):
 				path = getPath(self.logger, key="lustre_cgps_hi")
 			if self.survey == 'SGPS':
 				path = getPath(self.logger, key="lustre_sgps_hi")
+			if self.survey == 'VGPS':
+				path = getPath(self.logger, key="lustre_vgps_hi")
 		elif self.species == 'CO':
 			path = getPath(self.logger, key="lustre_cgps_co")
 		else:
@@ -67,33 +69,18 @@ class cleanMosaic(object):
 			ncpu = glob_ncpu#int(ceil(multiprocessing.cpu_count()/1))			
 			self.logger.info("Running on %i cpu(s)"%(ncpu))
 
-			if self.survey == 'CGPS':# or self.survey == 'SGPS':
-				
-				self.logger.info("Smoothing negative pixels...")
-				if ncpu > 1:
-					samples_list = array_split(Tb[0,zmin:zmax,:,:], ncpu)
-					pool = multiprocessing.Pool(processes=ncpu)
-					results = pool.map(correct_data, samples_list)
-					pool.close()
-					pool.join()
-					Tb[0,zmin:zmax,:,:] = concatenate(results).astype(Tb.dtype)
-					del samples_list
-					del results
-				else:
-					Tb[0,zmin:zmax,:,:] = correct_data(Tb[0,zmin:zmax,:,:])
-			
-			if self.survey == 'CGPS':
+			if self.survey == 'CGPS' or self.survey == 'VGPS':
 				
 				# Get HI continuum data
 				pathc = getPath(self.logger, self.survey.lower()+'_hi_continuum')
 				continuum = pathc+self.survey+'_'+self.mosaic+'_1420_MHz_I_image.fits'
 				checkForFiles(self.logger,[continuum])
-				data, header = pyfits.getdata(continuum, 0, header = True)
-				if self.survey == 'CGPS': cdata = data[0,0,:,:]
+				cdata, header = pyfits.getdata(continuum, 0, header = True)
+				#if self.survey == 'CGPS': cdata = data[0,0,:,:]
 				#if self.survey == 'SGPS': cdata = data[:,:]
 
 				self.logger.info("Removing artifacts due to continuum subtraction...")
-				if ncpu > 1:
+				if ncpu > 1 and not self.survey == 'VGPS':
 					import itertools
 					samples_list = array_split(Tb[0,zmin:zmax,:,:], ncpu)
 					pool = multiprocessing.Pool(processes=ncpu)
@@ -113,6 +100,18 @@ class cleanMosaic(object):
 				vec = [obs.xarray,obs.yarray,vel,dv,self.mosaic]
 				Tb[0,zmin:zmax,:,:] = correct_continuum2( (Tb[0,zmin:zmax,:,:],vec) )
 
+			self.logger.info("Smoothing negative pixels...")
+			if ncpu > 1 and not self.survey == 'VGPS':
+				samples_list = array_split(Tb[0,zmin:zmax,:,:], ncpu)
+				pool = multiprocessing.Pool(processes=ncpu)
+				results = pool.map(correct_data, samples_list)
+				pool.close()
+				pool.join()
+				Tb[0,zmin:zmax,:,:] = concatenate(results).astype(Tb.dtype)
+				del samples_list
+				del results
+			else:
+				Tb[0,zmin:zmax,:,:] = correct_data(Tb[0,zmin:zmax,:,:])
 
 		elif self.species == 'CO':
 					
@@ -139,6 +138,7 @@ class cleanMosaic(object):
 		else:
 			self.logger.info("Writing data to a fits file in...")
 		results.writeto(file, output_verify='fix')
+		#results.writeto('/afs/ifh.de/group/that/work-sf/survey/batch/sgps/hi/test.fits', output_verify='fix')
 		self.logger.info("%s"%path)
 		self.logger.info("Done")
 		

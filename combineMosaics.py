@@ -51,9 +51,11 @@ class combineMosaics(object):
 					tlist = list1+list2+list3
 				
 				elif self.survey == 'SGPS':
-					list1 = ['G005.5','G007.5','G009.5','G011.5','G013.5','G015.0','G017.0','G019.0','G258.0']
-					list2 = ['G268.0','G278.0','G288.0','G298.0','G308.0','G318.0','G328.0','G338.0','G348.0']
-					tlist = list1+list2
+					# SGPS I
+					list1 = ['G258.0','G268.0','G278.0','G288.0','G298.0','G308.0','G318.0','G328.0','G338.0','G348.0']
+					# SGPS II
+					list2 = ['G005.5','G007.5','G009.5','G011.5','G013.5','G015.0','G017.0','G019.0']
+					tlist = list1[::-1]#+list2
 
 				elif self.survey == 'VGPS':#VGPS_G000_HI_line_image.fits
 					list1 = ['G000','G017','G021','G025','G029','G033','G037']
@@ -84,7 +86,8 @@ class combineMosaics(object):
 		if len(list) == 0:
 			self.logger.critical("List empty! No files in %s"%path)
 			sys.exit(0)
-		
+		#print tlist
+		#exit(0)
 		# Total number of mosaics
 		n_msc = len(list)
 		ref_mosaic = path+list[0]
@@ -111,6 +114,7 @@ class combineMosaics(object):
 		
 		# TODO: Sort mosaics according to their coordinates		
 
+		# Fill a list with all the mosaics
 		list1,list2 = [],[]
 		for m in xrange(n_msc):
 			mosaic = path+list[m]
@@ -129,25 +133,30 @@ class combineMosaics(object):
 			else:
 				list1.append(hdu)
 		
+		# Define the overlap between mosaics
 		if HI_all_OR:
 			if self.mosaic == 'skymap' and (self.survey == 'CGPS' or self.survey == 'LAB'):
 				overlap_lon_px = round(1.12/msc_dy) # mosaics overlap by 1.12 deg = 224 px
 				overlap_lat_px = round(1.12/msc_dy) # if dx = 0.005
 				# needed for indexes
-				odx = int(overlap_lon_px/2)
-				ody = int(overlap_lat_px/2)
+				odx, ody = int(overlap_lon_px/2), int(overlap_lat_px/2)
+			elif self.mosaic == 'skymap' and self.survey == 'SGPS':
+				overlap_lon_px = round(1/msc_dy)
+				overlap_lat_px = 0.
+				odx,ody = int(overlap_lon_px/2), int(overlap_lat_px/2)
+				#print overlap_lon_px,overlap_lat_px,odx,ody
+				#exit(0)		
 			else:
 				overlap_lon_px = 0
 				overlap_lat_px = 0
-				odx,ody = 0,0
-			
+				odx,ody = msc_x,msc_y
+		
 		elif self.species == 'CO':
 			if self.survey == 'CGPS' and self.mosaic == 'skymap':
 				overlap_lon_px = round(1.12/msc_dy) # mosaics overlap by 1.12 deg = 224 px
 				overlap_lat_px = round(1.12/msc_dy) #
 				# needed for indexes
-				odx = int(overlap_lon_px/2)
-				ody = int(overlap_lat_px/2)		
+				odx, ody = int(overlap_lon_px/2), int(overlap_lat_px/2)		
 			else:
                                 overlap_lon_px = 0
                                 overlap_lat_px = 0
@@ -160,8 +169,12 @@ class combineMosaics(object):
 			
 		if msc_size == 3:
 			if self.mosaic == 'skymap':
-				nx = msc_x*(n_msc/2) - overlap_lon_px*((n_msc/2)-1)
-				ny = 2*msc_y - overlap_lat_px
+				if self.survey == 'CGPS':
+					nx = msc_x*(n_msc/2) - overlap_lon_px*((n_msc/2)-1)
+					ny = 2*msc_y - overlap_lat_px
+				else:
+					nx = msc_x*n_msc - overlap_lon_px*(n_msc-1)
+					ny = msc_y - overlap_lat_px
 			else:
 				nx = list1[0].header['naxis1']
 				ny = 0
@@ -170,58 +183,62 @@ class combineMosaics(object):
 			nz = msc_z
 			skymap = zeros((nz,ny,nx))
 		
-		# Using Multiprocessing if enough cpus are available
-		#import multiprocessing
-		#import itertools
-		#ncpu = 2
-		#self.logger.info("Running on %i cpu(s)"%(ncpu))
-		#vec = [dim,odx,msc_x]
-		#samples_list = (list1,list2)
-		#pool = multiprocessing.Pool(processes=ncpu)
-		#c1,c2 = pool.map(concatenateMosaics, itertools.izip(samples_list, itertools.repeat(vec)))
-		#pool.close()
-		#pool.join()
-		#del samples_list
-		#del results
-		#exit(0)
+		# Concatenate mosaics		
+		if self.mosaic == 'skymap':
+			if self.survey == 'CGPS' or self.survey == 'LAB':
+				if n_msc > 2:
+					ax = 2 # 2 if 3D, 1 if 2D
+					vec = [dim,odx,msc_x,ax]
+					
+					# Concatenate the lowest mosaics along the longitude axis 
+					# |o|o|o|o|... = |o|o|o|o|
+					# |x|x|x|x|... = |   x   |
+					c1 = concatenateMosaics( (list1,vec) )
+					
+					# Concatenate the upmost mosaics along the longitude axis
+					# |x|x|x|x|... = |   x   |
+					# |x|x|x|x|... = |   x   |
+					c2 = concatenateMosaics( (list2,vec) )
+				else:
+					c1 = hdu1.data
+					c2 = hdu.data
+				
+				# Concatenate the two raw of mosaics along the latitude axis
+				# |   x   |... = |   x   |
+				# |   x   |...   |       |
+				if dim == '2D':
+					skymap = concatenate( (c1[:-ody,:],c2[ody:,:]), axis=0)
+				if dim == '3D':		
+					skymap = concatenate( (c1[:,:-ody,:],c2[:,ody:,:]), axis=1)
 		
-		vec = [dim,odx,msc_x]
-		if self.mosaic == 'skymap' and (self.survey == 'CGPS' or self.survey == 'LAB'):
-			if n_msc > 2:
-				# Concatenate the lowest mosaics along the longitude axis 
-				# |o|o|o|o|... = |o|o|o|o|
-				# |x|x|x|x|... = |   x   |
-				c1 = concatenateMosaics( (list1,vec) )
-			
-				# Concatenate the upmost mosaics along the latitude axis
-				# |x|x|x|x|... = |   x   |
-				# |x|x|x|x|... = |   x   |
-				c2 = concatenateMosaics( (list2,vec) )
+				# Header keys
+				# CRVAL1
+				crv1_msc1 = list1[((n_msc/4)-1)].header['crval1']
+				crv1_msc2 = list1[((n_msc/4))].header['crval1']
+				crval1 = (crv1_msc1 + crv1_msc2)/2.
+				# CRVAL2
+				crv2_msc1 = list1[0].header['crval2'] # -1
+				crv2_msc2 = list2[0].header['crval2'] # 3
+				crval2 = (crv2_msc1 + crv2_msc2)/2.			
 			else:
-				c1 = hdu1.data
-				c2 = hdu.data
-	
-			# Concatenate the two raw of mosaics along the latitude axis
-			# |   x   |... = |   x   |
-			# |   x   |...   |       |
-			if dim == '2D':
-				skymap = concatenate( (c1[:-ody,:],c2[ody:,:]), axis=0)
-			if dim == '3D':		
-				skymap = concatenate( (c1[:,:-ody,:],c2[:,ody:,:]), axis=1)
-	
-			# Header keys
-			# CRVAL1
-			crv1_msc1 = list1[((n_msc/4)-1)].header['crval1']
-			crv1_msc2 = list1[((n_msc/4))].header['crval1']
-			crval1 = (crv1_msc1 + crv1_msc2)/2.
-			# CRVAL2
-			crv2_msc1 = list1[0].header['crval2'] # -1
-			crv2_msc2 = list2[0].header['crval2'] # 3
-			crval2 = (crv2_msc1 + crv2_msc2)/2.			
-			
+				ax = 2#1
+				vec = [dim,odx,msc_x,ax]
+				c = concatenateMosaics( (list1,vec) )
+				skymap = array(c)
+				
+				msc_side_deg = msc_dx*msc_x
+				crval1 = list1[0].header['crval1']-msc_side_deg/2+msc_dx*(skymap.shape[2]/2.)
+				
+				cos1 = 0
+				sin1 = 0
+				for m in xrange(len(list1)):
+					cos1 += cos(list1[m].header['crval2'])
+					sin1 += sin(list1[m].header['crval2'])
+				crval2 = arctan2(sin1,cos1)#-msc_dx
 		else:
 			c = []
 			index = 0
+			ax = 1# 1 = concatenate along y (2 = along x)
 			for current, next in zip(list1, list1[1:]):
 				d1 = current.data.shape
 				d2 = next.data.shape
@@ -229,15 +246,18 @@ class combineMosaics(object):
 					self.logger.critical("Mosaic dimensions don't agree: current = %s, next = %s"%(str(d1),str(d2)))
 					sys.exit(0)
 				if index == 0:
-					c = concatenate((current.data[:,:,:], next.data[:,:,:]), axis=1)
+					c = concatenate((current.data[:,:,:], next.data[:,:,:]), axis=ax)
 				elif index > 0 and index < len(list):
-					c = concatenate((c[:,:,:], next.data[:,:,:]), axis=1)
+					c = concatenate((c[:,:,:], next.data[:,:,:]), axis=ax)
 				elif index == len(list):
-					c = concatenate((c, next.data[:,:,:]), axis=1)
+					c = concatenate((c, next.data[:,:,:]), axis=ax)
 				index += 1
 			
 			skymap = array(c)
 			
+			# This is only true if the mosaic blocks are vertical 
+			# | x |
+			# | x |
 			crval1 = list1[0].header['crval1']
 
 			cos1 = 0
@@ -255,6 +275,9 @@ class combineMosaics(object):
 
 		lonsign = getSign(crval1,string=True)
 		latsign = getSign(crval2,string=True)
+		#print crval1,crpix1
+		#print crval2,crpix2
+		#exit(0)
 
 		# Store results
 		newheader = pyfits.Header()
@@ -305,7 +328,7 @@ class combineMosaics(object):
 		path,key = '',''
 		if self.mosaic == 'skymap':
 			path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower())
-			skymap_name = path+'%s_G%.2f%s%.2f.fits'%(self.survey,crval1,latsign,crval2)
+			skymap_name = path+'/skymaps/%s_G%.2f%s%.2f.fits'%(self.survey,crval1,latsign,crval2)
 		else:
 			path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower()+'_column_density')
 			if HI_all_OR:

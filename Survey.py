@@ -8,7 +8,7 @@ from Mosaic import *
 from makeMosaic import *
 from makeCorrection import *
 from combineMosaics import *
-from dsampleMosaic import *
+from galpropSkymap import *
 from deconvolveMosaic import *
 from extractionHISA import *
 from cleanMosaic import *
@@ -20,7 +20,7 @@ class Survey:
 		surveyConfig = {'survey':'MySurvey','species':'HI'},
 		mosaicConfig = {'mosaic':'skymap','lon':'INDEF','lat':'INDEF','z1':'INDEF','z2':'INDEF','side':'INDEF'},
 		utilsConfig = {'tcmb':2.7, # Cosmic Microwave Background temperature (K)
-		'tspin':150., # Excitation or Spin temperature (K)
+		'tspin':125., # Excitation or Spin temperature (K) - 125 standard, 150 Fermi
 		'xfactor':1.9e20, # CO Factor - Strong & Mattox (1996): X=NH2/Wco (K-1 cm-2 km-1 s)
 		'c':1.823e18, # Costant (cm-2)
 		'pc2cm':3.08567758e18, # Conversion factor from pc to cm (cm)
@@ -178,39 +178,31 @@ class Survey:
 			- load     = True, False (original survey mosaic)
 		Access mosaic's attributes through self.mosaic
 		"""
-		try:
-			#if self.flag_existance:
-			#	del self.msc
-			#	self.logger.info("Free memory")
-			
+		try:			
 			self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,datatype,nmsc,totmsc,mypath)
 			#self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,load=True)
 			self.logger.info(self.ret.subn(', ',str(self.mosaic))[0])
 			
 		except(FileNotFound):
-			self.logger.critical("One or more needed files do not exist")
 			return
 
-	def downSampleMosaic(self,scale=1):
+	def getGalpropMap(self,resolution=1):
 		"""
-		Access mosaic's attributes through self.lowres
+		Access mosaic's attributes through self.galprop
 		Input parameters: 
-			species = 'HI'(default), 'CO'
-			scale   = True (write scaled data in FITS file), False (do not scale data)
+			- resolution, in degrees
 		"""
 		try:
 			self.mosaic
  		except AttributeError:
-			#self.logger.critical("Obs object does not exist. Create it first with the 'makeObs' function.")
 			self.logger.critical("Mosaic object does not exist. Create it first with the 'loadMosaic' function.")
 			return
 
 		try:
-			self.lowres = dsampleMosaic(self.mosaic,scale)
-			self.logger.info(self.ret.subn(', ',str(self.lowres))[0])
+			self.galprop = GalpropSkymap(self.mosaic,resolution)
+			self.logger.info(self.ret.subn(', ',str(self.galprop))[0])
 
 		except(FileNotFound):
-			self.logger.critical("One or more needed files do not exist")
 			return
 
 
@@ -253,21 +245,6 @@ class Survey:
 			self.logger.critical("One or more needed files do not exist")
 			return
 			
-	def getGalpropMap(self,species='HI',type='column density'):
-		try:
-			self.mosaic
-			self.mosaic.newspec = species
- 		except AttributeError:
-			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the 'loadMap' function.")
-			return
-		try:
-			self.galprop = makeAnnuli(self.mosaic,self.mosaicConf,self.utilsConf)
-			self.logger.info(self.ret.subn(', ',str(self.galprop))[0])
-			
-		except(FileNotFound):
-			self.logger.critical("One or more needed files do not exist")
-			return
-
 	def combineMosaics(self,mosaic='skymap',species='HI',type='column density',dim='2D'):
 		
 		try:
