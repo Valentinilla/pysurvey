@@ -66,7 +66,7 @@ class testModule(object):
 		Ts = float(utilsConf['tspin'])	  	# [Excitation (or Spin) Temperature] = K (150)
 		C = float(utilsConf['c'])	  	# [costant] = cm-2
 		
-		rmin,rmax,annuli = getAnnuli()
+		rmin,rmax,annuli = getAnnuli(glob_annuli)
 		
 		# Array to store results
 		cubemap = zeros((annuli,nlat,nlon),dtype=float32)

@@ -44,7 +44,7 @@ class combineMosaics(object):
 			if self.species == 'HI':
 				list1 = ['MV1','MV2','MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
 				list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2','MH1','MH2']
-				list3 = ['MJ1','MJ2','MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
+				list3 = ['MIJ1','MIJ2','MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
 				tlist = list1+list2+list3
 
 			if self.species == 'CO':
@@ -53,17 +53,18 @@ class combineMosaics(object):
 				list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2']
 				tlist = list1+list2
 			
-			for f in os.listdir(path):
-				for m in tlist:
+			# this configuration (for m --> for f) sort lists in the right way
+			for m in tlist:
+				for f in os.listdir(path):
 					if f.startswith('CGPS_%s_%s'%(m,flag1)):
 						list.append(f)
 		else:
 			if self.species == 'HI':
 				list = [f for f in os.listdir(path) if f.startswith('CGPS_%s_%s_part'%(self.mosaic,flag1))]
+				list = sort(list)
 
 		# Total number of mosaics
 		n_msc = len(list)
-		list = sort(list)
 		ref_mosaic = path+list[0]
 		checkForFiles(self.logger,[ref_mosaic])
 		
@@ -278,7 +279,7 @@ class combineMosaics(object):
 				flag = 'WCO_intensity_line'
 			skymap_name = path+self.survey+'_'+self.mosaic+'_'+flag+'_rings.fits'
 
-		rmin,rmax,annuli = getAnnuli()
+		rmin,rmax,annuli = getAnnuli(glob_annuli)
 		
 		# Create a Table with the annuli boundaries
 		col1 = pyfits.Column(name='Rmin', format='1E', unit='kpc', array=array(rmin))

@@ -22,12 +22,11 @@ from scipy import ndimage
 
 import pyfits
 
-# Avoid math module if possible because many functions 
-# conflict with those in numpy (math functions operate in 
+# Avoid math module because of conflicts with 
+# functions in numpy (math module operates in 
 # 1D arrays, numpy's in multidimensional arrays)
-# If it is strictly necessary to use math then 
-# import functions explicitly, i.e. 
-# from math import func1,func2,...
+# If it's unavoidable then call functions as
+# math.function or numpy.function
 
 #################################################
 # GLOBAL VARIABLES
@@ -36,6 +35,7 @@ glob_Tb  = 'brightness temperature'
 glob_ITb = 'integrated brightness temperature'
 glob_N   = 'column density'
 glob_ncpu = 16
+glob_annuli = 'Ackermann2012' # Ackermann2012:Galprop
 #################################################
 #	START GENERAL FUNCTIONS
 #################################################
@@ -484,14 +484,25 @@ def nearest_neighbors(xarray,yarray):
 #################################################
 #	END MAP CORRECTIONS
 #################################################
-def getAnnuli():
-	# Boundaries of Galactocentric Annuli - M.Ackermann et al
-	# (The Astrophysical Journal, 750:3-38, 2012)
-	annuli = 17
-	rmin = [0.,1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.]
-	rmax = [1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.,50.]
-	#ann_boundaries = [ [i,rmin[i],rmax[i]] for i in xrange(annuli)]
+def getAnnuli(ver):
 	
+	annuli = 0
+	rmin = []
+	rmax = []
+	
+	if ver == 'Ackermann2012':
+		# Boundaries of Galactocentric Annuli - M.Ackermann et al
+		# (The Astrophysical Journal, 750:3-38, 2012)
+		annuli = 17
+		rmin = [0.,1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.]
+		rmax = [1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.,50.]
+		#ann_boundaries = [ [i,rmin[i],rmax[i]] for i in xrange(annuli)]
+
+	if ver == 'Galprop':
+		annuli = 9
+		rmin = [0.,1.767249,3.524893,5.520308,7.505054,9.5,11.5,13.5,15.5]
+		rmax = [1.767249,3.524893,5.520308,7.505054,9.5,11.5,13.5,15.5,50]
+
 	return rmin,rmax,annuli
 
 #################################################
@@ -647,7 +658,7 @@ def rotation_curve( (T,vec) ):
 	for l in xrange(0,nlon):
 		glo_deg = lon[l]
 		#surveyLogger.info("%i) longitude: %.3f"%(l,lon[l]))
-		#print "%i) longitude: %.3f"%(l,lon[l])
+		#print "%i) longitude: %.3f deg"%(l,lon[l])
 		if (abs(glo_deg) < 165.):
 			glon = radians(glo_deg)
 			pmean = r_sun*cos(glon)
@@ -690,10 +701,9 @@ def rotation_curve( (T,vec) ):
 					if(vbgr[0]==0.): vbgr[0] = vpec
 					idx = where(vbgr[1:dmax]==0.)
 					cnt = size(idx[0])
-						
 					while(cnt>0):
 						vba[:] = 0.
-						for k in xrange(cnt-2):
+						for k in xrange(cnt):
 							ia = idx[0][k]+1
 							if(vbgr[ia-1] != 0.):
 								if(vbgr[ia+1] != 0.):
@@ -749,12 +759,17 @@ def rotation_curve( (T,vec) ):
 				spec[0] = 0.
 				spec[nvel-1] = 0.
 				rspec = fftconvolve(spec,lim,'same')
+				#print argmax(spec),argmin(spec)
+				
+				#zero_avg = mean(rspec[rspec<0])
+				#print zero_avg,abs(dv*sum(spec[spec>-0.1])),abs(dv*sum(spec))
 				#plotFunc(vel,spec,rspec)
-					
-				wco = abs(dv*sum(spec))
+				
+				wco = fabs(dv*sum(spec[spec>-0.1])) #fabs(dv*sum(spec))
 				wcb = wco/sigma_line
 				wco_previous = 0
 				cnt1 = 0
+
 				# Start deconvolution
 				while(wco > residual_line):
 					
@@ -894,9 +909,9 @@ def rotation_curve( (T,vec) ):
 					wco_previous = wco
 					spec[ivlow:ivhigh] = spec[ivlow:ivhigh]-wgo*amp*line[iv1:iv2]-wgn*amp*line_inner[iv1:iv2]*sigma_line/sigma_line_inner
 					rspec = fftconvolve(spec,lim,'same')
-					wco = fabs(dv*sum(spec))
+					wco = fabs(dv*sum(spec[spec>-0.1]))#fabs(dv*sum(spec))
 					wcb = wco/sigma_line
-					
+					#print wco
 					if wco > wco_previous:
 						wco = residual_line
 						wcb = wco/sigma_line
@@ -912,7 +927,8 @@ def rotation_curve( (T,vec) ):
 						wcb = wco/sigma_line
 						string += "2) wco = %.3f, wco_previous = %.3f\n"%(wco,wco_previous)
 						report.write(string)
-					#	plotFunc(vel,rspec,spec)
+						
+					#plotFunc(vel,rspec,spec)
 			
 	report.close()	
 	return cubemap
@@ -1047,7 +1063,502 @@ def concatenateMosaics( (list,vec) ):
 #################################################
 # END COMBINE 
 #################################################
+#################################################
+# START SPATIAL SEARCH FUNCTIONS
+#################################################
+def movingaverage2D(array, w):
+	window = ones((w,w))/float(w**2)
+	return fftconvolve(array, window, 'same')
 
+def spatialAverage2D(array,w):
+	wmin = int(w/2)
+	wmax = array.shape[0]-wmin
+
+	a2 = movingaverage2D(array, w)
+
+	a3 = zeros(array.shape)
+	a3[wmin:wmax,wmin:wmax]=a2[wmin:wmax,wmin:wmax]
+
+	a3[:wmin,:]=array[:wmin,:]
+	a3[:,:wmin]=array[:,:wmin]
+	a3[wmax:,:]=array[wmax:,:]
+	a3[:,wmax:]=array[:,wmax:]
+
+	return a3
+
+def rms_estimation2D(signal,noise,wsize):
+
+	rms_noise = signal - noise
+	sigma = zeros(signal.shape,dtype=float32)
+	
+	noise_avg = ndimage.median_filter(rms_noise,wsize)
+	noise_sqr_avg = ndimage.median_filter(rms_noise**2,wsize)
+	sigma = sqrt(noise_sqr_avg-noise_avg**2)
+
+	return sigma
+
+def spatialSearch( (T,vec) ):
+
+	kmin = vec[0]
+	kmax = vec[1]
+	dx = vec[2] # deg
+	nx = vec[3]
+	ny = vec[4]
+	nz = vec[5]
+	params = vec[6]
+
+	N_SPATIAL         = int(params['n_spatial'])
+	MAX_LOOPS         = int(params['max_loops'])
+	HIGH              = int(params['high'])
+	RESIDUAL_FRAC     = float(params['residual_frac'])
+	CLIP_SPATIAL      = float(params['clip_spatial'])
+	GAIN_SPATIAL      = float(params['gain_spatial'])
+	FWHM_SPATIAL      = float(params['fwhm_spatial']) # 20 arcmin = 20'
+	NOISE_RESOLVE     = float(params['noise_resolve'])
+	HISA_F_SPATIAL    = float(params['hisa_f_spatial'])
+	TEMP_CRITICAL     = float(params['temp_critical'])
+	AMP_MIN_FIRST     = float(params['amp_min_first'])
+	FWHM_SPATIAL_HISA = float(params['fwhm_spatial_hisa'])
+	MIN_HISA          = float(params['min_hisa'])
+	
+	result = zeros((nz,ny,nx),dtype=float32)
+
+	# spatial gaussian
+	fwhm_spat = FWHM_SPATIAL/(fabs(dx)*60.) # [fwhm] = px (1 arcmin = 1/60 deg)
+	sigma_spat = fwhm_spat/sqrt(8*log(2)) # [sigma_spat] = px
+	L = 1.5*fwhm_spat
+	xx,yy = mgrid[-L:L,-L:L]
+	gauss_spat = 1/(2*pi*sigma_spat**2)*exp(-0.5*(xx**2+yy**2)/(sigma_spat**2) )
+	gauss_spat *= 1/(gauss_spat).sum()
+	#print FWHM_SPATIAL,fwhm_spat,FWHM_SPATIAL_HISA,dx
+	#print gauss_spat.sum()
+	#plotFunc2D(xx,yy,gauss_spat)
+	#exit(0)
+
+	# HISA gaussian
+	sigma_spat_HISA = FWHM_SPATIAL_HISA/sqrt(8*log(2)) # FWHM = 5px	
+	L = 1.5*FWHM_SPATIAL_HISA
+	xx,yy = mgrid[-L:L,-L:L]
+	gauss_spat_HISA = 1/(2*pi*sigma_spat_HISA**2)*exp(-0.5*(xx**2+yy**2)/(sigma_spat_HISA**2) )
+	gauss_spat_HISA *= 1/(gauss_spat_HISA).sum()
+	#plotFunc2D(xx,yy,gauss_spat_HISA)
+	#exit(0)
+
+	# Spatial search algorithm
+	for k in xrange(kmin,kmax):
+
+		print "k = %s"%k
+			
+		# O(i,j) is the observed spectrum
+		observed = T[k,:,:]
+		# S(i,j) is a smoothed version of O(i,j)
+		smoothed = ndimage.median_filter(observed,N_SPATIAL) #15px
+		# U(i,j) is the unabsorbed spectrum (initially set to zero)
+		unabsorbed = zeros(observed.shape,dtype=float32)
+		# R(k) is the residual spectrum (initially set equal to S(k))
+		residual = smoothed
+						
+		# N(i,j) is the smoothed noise on a large angular scale [20' = 66.7 px]
+		noise_box = NOISE_RESOLVE/(60.*fabs(dx)) #67px
+		noise = ndimage.gaussian_filter(observed,sigma=(noise_box,noise_box),order=(0,0))
+			
+		# Estimatation of the rms noise in O(i,j)
+		sigma_obs = rms_estimation2D(observed,noise,noise_box)
+			
+		# Estimation of the average rms noise in S(i,j)	
+		sigma_sm = zeros(observed.shape,dtype=float32)
+		sigma_sm1 = rms_estimation2D(smoothed,noise,noise_box)
+			
+		imin = int(noise_box/2.)
+		imax_lat = int(ny-(imin+1))
+		imax_lon = int(nx-(imin+1))
+			
+		for y in xrange(imin,imax_lat):
+			for x in range(imin,imax_lon):
+				min1 = min(sigma_sm1[y-imin,x-imin],sigma_sm1[y-imin,x+imin])
+				min2 = min(sigma_sm1[y+imin,x-imin],sigma_sm1[y+imin,x+imin])
+				sigma_sm[y,x] = min(min1,min2)
+			
+		den = (nx-noise_box)**2
+		sigma_sm_avg = (sigma_sm[imin:ny-(imin+1),imin:nx-(imin+1)]).sum()/den
+			
+		# Clean loop
+		s_max = amax(smoothed)
+		for loop in xrange(MAX_LOOPS):
+
+			# Find the 10th highest residual
+			rmax = get_nth_maxvalue(residual,HIGH)
+					
+			# 1. 
+			if(rmax < RESIDUAL_FRAC*s_max or rmax == 0):
+				break
+				
+			# 2.
+			correction = zeros(observed.shape,dtype=float32)
+			index = where(residual > CLIP_SPATIAL*rmax) 
+			correction[index] = GAIN_SPATIAL*residual[index]
+				
+			# 3.
+			#unabsorbed += fftconvolve(correction,gauss_spat,"same")
+			unabsorbed += ndimage.gaussian_filter(correction,sigma=(sigma_spat,sigma_spat),order=(0,0))
+			# 4.
+			# calculate the rms of positive values of residual
+			residual = smoothed - unabsorbed
+				
+			x_pos = residual[residual > 0.]
+			if( len(x_pos) > 0):
+				sigma_pos = sqrt(mean( power(x_pos,2) ))
+			else:
+				sigma_pos = 0.
+				
+			if(sigma_pos < sigma_sm_avg):
+				break
+									
+			if loop == -2:
+				exit(0)
+
+		# Process results to look for potential HISA
+		observed_dif = observed-unabsorbed
+
+		# eliminate pixels with no valid noise calculations from consideration
+		omit = [arange(noise_box),nx-arange(noise_box)-1]
+		omit2 = [arange(noise_box),ny-arange(noise_box)-1]
+		residual[:,omit] = 0.
+		residual[omit2,:] = 0.
+		observed_dif[:,omit] = 0.
+		observed_dif[omit2,:] = 0.
+
+		res_check = where(residual < HISA_F_SPATIAL*sigma_sm)
+		obs_check = where(observed_dif < HISA_F_SPATIAL*sigma_obs)
+			
+		hisa_detected = zeros(observed.shape,dtype=float32)
+		if(len(res_check) > 0):
+			hisa_detected[res_check] = unabsorbed[res_check]-observed[res_check]
+		if(len(obs_check) > 0):
+			hisa_detected[obs_check] = unabsorbed[obs_check]-observed[obs_check]
+			
+		# perform initial filtering of detected HISA
+		filter1 = where(unabsorbed < TEMP_CRITICAL)
+		filter2 = where(hisa_detected < AMP_MIN_FIRST)
+		hisa_detected[filter1] = 0.
+		hisa_detected[filter2] = 0.
+			
+		# Do spatial smoothing of HISA
+		#result[k,:,:] = fftconvolve(hisa_detected,gauss_spat_HISA,"same")
+		result[k,:,:] = ndimage.gaussian_filter(hisa_detected,sigma=(sigma_spat_HISA,sigma_spat_HISA),order=(0,0))
+
+	#self.logger.info("Only take smoothed HISA > 2K...")
+	## Turn results into a map with 1 where smoothed HISA > 2K and 0 everywhere else
+	result[result < MIN_HISA] = 0.
+	
+	return result
+
+#################################################
+# END SPATIAL SEARCH FUNCTIONS
+#################################################
+#################################################
+# START SPECTRAL SEARCH FUNCTIONS
+#################################################
+def gaussian(x,p,normalized=True):
+	# Returns a 1D gauss for convolution
+	# p[0] = norm, p[1] = mu, p[2] = sigma
+	if(normalized is True):
+		A = 1/(p[2]*sqrt(2*pi))
+	if(normalized is not True):
+		A = p[0]
+	g = A*exp(-0.5*power( (x-p[1])/p[2],2))
+	return g
+
+def residualG(pars, x, data=None):
+	amp = pars['amp'].value
+	mu = pars['mu'].value
+	sigma = pars['sigma'].value
+	#p0 = pars['p0'].value
+	#p1 = pars['p1'].value
+
+	if abs(sigma) < 1.e-10:
+		sigma = sign(sigma)*1.e-10
+
+	model = amp*exp(-0.5*power((x-mu)/sigma,2))#+p0+p1*x
+
+	if data is None:
+		return model
+
+	return (data-model)
+
+def dipFilter(spectrum,x0,dx):
+	# Check for "dip" in O(k) at kmin (=x0)
+	hdx = int(dx/2)
+
+	i11 = x0-dx#+1
+	i12 = x0-hdx
+	i21 = x0+hdx
+	i22 = x0+dx#+1
+
+	y0 = spectrum[x0]
+	y1 = sum(spectrum[i11:i12])/hdx
+	y2 = sum(spectrum[i21:i22])/hdx
+
+	Diff = 2*max([abs(y0-y1),abs(y0-y2)])
+	Frac = 1 - abs(y1-y2)/Diff
+							
+	if(y1<y0 and y2<y0):
+		Frac = 0
+
+	if(False):
+		print "Left:   y1 = %s - O[%s:%s]"%(y1,i11,i12)
+		print "Center: y0 = %s - O[%s]"%(y0,x0)
+		print "Right:  y2 = %s - O[%s:%s]\n"%(y2,i21,i22)
+		print "Diff:  %s"%Diff
+		print "Frac:  %s"%Frac
+
+	return Frac
+
+def spectralSearch( (T,vec) ):
+
+	kmin = vec[0]
+	kmax = vec[1]
+	dx = vec[2]
+	dz = vec[3]/1000.
+	nx = vec[4]
+	ny = vec[5]
+	nz = vec[6]
+	zarray = vec[7]/1000.
+	params = vec[8]
+
+	N_SPECTRAL        = int(params['n_spectral'])
+	MAX_LOOPS         = int(params['max_loops'])
+	RESIDUAL_FRAC     = float(params['residual_frac'])
+	CLIP_SPECTRAL     = float(params['clip_spectral'])
+	GAIN_SPECTRAL     = float(params['gain_spectral'])
+	FWHM_SPECTRAL     = float(params['fwhm_spectral'])
+	HISA_F_SPECTRAL   = float(params['hisa_f_spectral'])
+	TEMP_CRITICAL     = float(params['temp_critical'])
+	FIT_NARROW        = float(params['fit_narrow'])
+	FIT_BROAD         = float(params['fit_broad'])
+	FIT_QUAL          = float(params['fit_qual'])
+	DIP_CUT           = float(params['dip_cut'])
+	FWHM_SPATIAL_HISA = float(params['fwhm_spatial_hisa'])
+	MIN_HISA          = float(params['min_hisa'])
+	
+	# Array to store results
+	result = zeros((nz,ny,nx),dtype=float32)
+
+	# Set up gaussians to be used for convolution
+	# spectral convolution
+	sigma_spec = FWHM_SPECTRAL/sqrt(8*log(2))
+	L = 3*FWHM_SPECTRAL
+	deltax = fabs(dz)
+	n_half = floor( (L/2)/deltax )
+	xi = linspace(-n_half*deltax,n_half*deltax,num=1+2*n_half)
+	gauss_spec = gaussian(xi,[0,0,sigma_spec],normalized=True)
+	gauss_spec *= 1/(gauss_spec).sum()
+	#plotFunc(xi,gauss_spec)
+	
+	# spatial convolution (HISA gaussian)
+	sigma_HISA = FWHM_SPATIAL_HISA/sqrt(8*log(2))
+	L = 3*FWHM_SPATIAL_HISA #3*5
+	xx,yy = mgrid[-L:L,-L:L]
+	gauss_HISA = 1/(2*pi*sigma_HISA**2)*exp(-0.5*(xx**2+yy**2)/(sigma_HISA**2) )
+	gauss_HISA *= 1/(gauss_HISA).sum()
+	#plotFunc2D(xx,yy,gauss_HISA)
+	
+	# Find sigma values for gaussian fits, in units of pixels
+	sigma_narrow = FIT_NARROW/(sqrt(8*log(2))*fabs(dz))
+	sigma_broad = FIT_BROAD/(sqrt(8*log(2))*fabs(dz))
+
+	# Start spectral search algorithm
+	# needed for rms (see below)
+	a=round((nz-kmin)/3)+kmin-1
+	b=round((nz-kmin)/3)+kmin
+	c=round(2*(nz-kmin)/3)+kmin-1
+	d=round(2*(nz-kmin)/3)+kmin
+	#print a,b,c,d #a=101, b=102, c=186, d=187
+	
+	for i in xrange(7,nx-9):#7
+		for j in xrange(7,ny-9):
+			
+			# O(k) is the observed spectrum
+			observed = T[:,j,i]
+			# S(k) is a smoothed version of O(k)
+			smoothed = ndimage.median_filter(observed,N_SPECTRAL)
+			# U(k) is the unabsorbed spectrum (initially set to zero)
+			unabsorbed = zeros(observed.shape,dtype=float32)
+			# R(k) is the residual spectrum (initially set equal to S(k))
+			residual = smoothed
+			# Spectral rms noise in O(k)
+			noise = observed - smoothed
+			sigma_array = zeros(3,dtype=float32)
+			# Compute the standard deviation along the specified axis:
+			# std = sqrt(mean(abs(x - x.mean())**2))
+			sigma_array[0] = std(noise[kmin:a])
+			sigma_array[1] = std(noise[b:c])
+			sigma_array[2] = std(noise[d:])
+			sigma_obs = amin(sigma_array)
+			
+			# Initialize the HISA container
+			HISA_merged = zeros(nz,dtype=float32)
+			
+			# Initialize the rms of positive values of residual
+			sigma_pos = 0
+			
+			# Clean loop
+			smax = amax(smoothed)
+			
+			for loop in xrange(MAX_LOOPS):
+
+				rmax = amax(residual)
+				
+				# 1. 
+				if(rmax < RESIDUAL_FRAC*smax or rmax == 0.):
+					break
+				# 2.
+				correction = zeros(nz,dtype=float32)
+				correction = where(residual>CLIP_SPECTRAL*rmax,residual*GAIN_SPECTRAL,correction)
+				
+				# 3.
+				#unabsorbed += fftconvolve(correction,gauss_spec,"same")
+				unabsorbed += ndimage.gaussian_filter(correction,sigma=sigma_spec,order=0)
+				# 4.
+				# calculate the rms of positive values of residual
+				residual = smoothed-unabsorbed
+				x_pos = residual[residual > 0.]
+				
+				#plotFunc(zarray,observed,smoothed,unabsorbed,residual)
+				if(len(x_pos) > 0):
+					sigma_pos = sqrt(mean( power(x_pos,2) ))
+				else:
+					sigma_pos = 0.
+				
+				if(sigma_pos < sigma_obs):
+					break
+				
+			# Process results to look for potential HISA
+			if(rmax > 0):
+				# output (array([190, 191, 207]),)
+				suspected_hisa_index = where(residual < sigma_pos*HISA_F_SPECTRAL)
+				# counting starts from right in the graph (18 initial 0-events)
+				cnt1 = size(suspected_hisa_index)
+			else: 
+				cnt1 = 0
+			
+			# Skip HISA search if HICA present
+			if(amin(observed) < -6.*sigma_obs):
+				cnt1 = 0	
+			
+			counter = 0
+			segments=[]
+				
+			# Build consecutive HISA candidates into segments
+			while(counter < cnt1):
+				segments = [residual[suspected_hisa_index[0][counter]]]
+				ikmin = [suspected_hisa_index[0][counter],0]
+				count_start = counter
+				counter += 1
+				while(counter < cnt1 and (suspected_hisa_index[0][counter]-1) == suspected_hisa_index[0][counter-1]):
+					segments.append(residual[suspected_hisa_index[0][counter]])
+					if(segments[counter-count_start] < segments[ikmin[1]] ):
+						ikmin = [suspected_hisa_index[0][counter],counter-count_start]
+					counter += 1
+				# ikmin[0][0] = index in residual, ikmin[0][1] = index in segments, ikmin[1] = size of segment
+				ikmin = [ikmin, counter-count_start]
+	
+				# Fit Gaussians to candidate segments
+				#perform initial filtering on candidate segments
+				if(smoothed[ikmin[0][0]] > 2.*HISA_F_SPECTRAL*sigma_pos and unabsorbed[ikmin[0][0]] > TEMP_CRITICAL):
+					# Pad array (segments) with 0s to make sure fit possible
+					num_of_zeros = 6
+					data = zeros(ikmin[1]+num_of_zeros)
+					i_inf = 0.5*num_of_zeros
+					i_sup = ikmin[1] + 0.5*num_of_zeros
+					data[i_inf:i_sup] = fabs(array(segments))
+				
+					amp = amax(data)
+					mu = ikmin[0][0]
+					par = [amp,mu,sigma_narrow,sigma_broad]
+
+					x = xrange( ikmin[1] + num_of_zeros ) + ( ikmin[0][0] - (ikmin[0][1]+ 0.5*num_of_zeros) )
+
+					parN = Parameters()
+					parB = Parameters()
+
+					if((data.size-num_of_zeros) > 3): #3 (at least 3 points to fit)
+						parN.add('amp', value=par[0], vary=True)
+						parN.add('mu', value=par[1], vary=False)
+						parN.add('sigma', value=par[2], vary=False)
+						parB.add('amp', value=par[0], vary=True)
+						parB.add('mu', value=par[1], vary=False)
+						parB.add('sigma', value=par[3], vary=False)
+					else:
+						parN.add('amp', value=par[0], vary=False)
+						parN.add('mu', value=par[1], vary=True)
+						parN.add('sigma', value=par[2], vary=True)
+						parB.add('amp', value=par[0], vary=False)
+						parB.add('mu', value=par[1], vary=True)
+						parB.add('sigma', value=par[3], vary=True)
+
+					fitN = minimize(residualG, parN, args = (x, data), engine = "leastsq")
+					fitB = minimize(residualG, parB, args = (x, data), engine = "leastsq")
+
+					bestfit_parN = [float(parN['amp'].value),float(parN['mu'].value),float(parN['sigma'].value)]
+					bestfit_parB = [float(parB['amp'].value),float(parB['mu'].value),float(parB['sigma'].value)]
+						
+					# Check quality of fit
+					sigma_fitN = sqrt((fitN.residual**2).sum()/data.size)
+					sigma_fitB = sqrt((fitB.residual**2).sum()/data.size)
+
+					condition = min([bestfit_parN[0]/max([sigma_fitN,sigma_pos]),bestfit_parB[0]/max([sigma_fitB,sigma_pos])])
+					if( (condition > FIT_QUAL) and fitN.success and fitB.success):
+						fit_quality = True
+					else:
+						fit_quality = False
+						
+					# Process and combine fitted Gaussians
+					if(fit_quality):
+						HISA_narrow = gaussian(arange(nz),bestfit_parN,normalized=False)
+						HISA_broad  = gaussian(arange(nz),bestfit_parB,normalized=False)
+
+						# Only take values > 5% of peak (cut the gaussian tails)
+						filterN = 0.05 * HISA_narrow[ikmin[0][0]]
+						filterB = 0.05 * HISA_broad[ikmin[0][0]]
+
+						HISA_narrow[HISA_narrow < filterN] = 0
+						HISA_broad[HISA_broad < filterB] = 0
+
+						HISA_merged_temp = where(HISA_narrow > HISA_broad, HISA_narrow, HISA_broad)
+
+						# Check for "dip" in O(k) at ikmin
+						dip_frac = dipFilter(observed,ikmin[0][0],num_of_zeros)
+						if(dip_frac > DIP_CUT):
+							HISA_merged += HISA_merged_temp
+							
+						#ar = -1*ones(observed.shape,dtype=float32)
+						#trh1 = ones(nz)*(sigma_pos*HISA_F_SPECTRAL-10)
+						#trh2 = 30*ones(nz)
+						#f1 = [observed,unabsorbed,smoothed,10*ar+residual]
+						#f2 = [60*ar+HISA_narrow,90*ar+HISA_broad,120*ar+HISA_merged]
+						# U(k),S(k),R(k),HISA_N,HISA_B,HISA_M
+						#plotFunc(zarray,f1[1],f1[0],f1[3],f2[0],f2[1],f2[2],trh1,trh2)
+		
+			# Store HISA in result_array
+			result[:,j,i] = HISA_merged
+			
+		print "Done with (i,j) = (%i,%i)"%(i,j)
+		
+	# Do spatial smoothing of HISA
+	print "Spatial smoothing (convolution)..."
+	for k in xrange(nz):
+		result[k,:,:] = fftconvolve(result[k,:,:],gauss_HISA,"same")
+
+	#self.logger.info("Only take smoothed HISA > 2K...")
+	# Turn results into a map with 1 where smoothed HISA > 2K and 0 everywhere else
+	result[result < MIN_HISA] = 0.
+
+	return result
+
+#################################################
+# END SPECTRAL SEARCH FUNCTIONS
+#################################################
 #################################################
 # START PLOTTING FUNCTIONS
 #################################################
@@ -1077,7 +1588,7 @@ def plotFunc(x,*func):
 		plt.plot(x,func[0],x,func[1],x,func[2],x,func[3],x,func[4],x,func[5],x,func[6])
 		plt.legend( ('f1','f2','f3','f4','f5','f6'),loc='upper left',shadow=False,fancybox=True)
 	if n==8:
-		plt.plot(x,func[0],x,func[1],'o',x,func[2],x,func[3],x,func[4],x,func[5],x,func[6],'--',x,func[7],'--')
+		plt.plot(x,func[0],x,func[1],x,func[2],x,func[3],x,func[4],x,func[5],x,func[6],'--',x,func[7],'--')
 		#unabsorbed,smoothed,residual,HISA_narrow,HISA_broad,HISA_merged
 		plt.legend( ('unabsorbed','smoothed','residual','narrow','broad','merged'),loc='upper right',shadow=False,fancybox=True)
 	if n>8:
@@ -2013,5 +2524,4 @@ def _quotefn(filename):
 		return None
 	else:
 		return "'" + filename + "'"
-
 

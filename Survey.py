@@ -10,8 +10,7 @@ from makeCorrection import *
 from combineMosaics import *
 from dsampleMosaic import *
 from testModule import *
-from spectralAnalysis import *
-from spatialAnalysis import *
+from extractionHISA import *
 from cleanMosaic import *
 from splitMosaic import *
 
@@ -216,10 +215,10 @@ class Survey:
 			return
 
 
-	# It needs to be implemented
-	def spectralSearch(self):
+	# spectral search needs to be implemented
+	def extractHISA(self,analysis='spatial'):
 		"""
-		Access mosaic's attributes through self.spec
+		Access mosaic's attributes through self.hisa
 		"""
 		try:
 			self.mosaic
@@ -228,13 +227,12 @@ class Survey:
 			return
 
 		try:
-			self.spec = spectralAnalysis(self.mosaic,self.spectralConf)
-			self.logger.info(self.ret.subn(', ',str(self.spec))[0])
-
+			self.hisa = extractionHISA(self.mosaic,self.spatialConf,self.spectralConf,analysis)
+			self.logger.info(self.ret.subn(', ',str(self.hisa))[0])
+		
 		except(FileNotFound):
 			self.logger.critical("One or more needed files do not exist")
 			return
-
 
 	def getColumnDensity(self,species='HI'):
 		"""

@@ -10,7 +10,7 @@ from makeCorrection import *
 from combineMosaics import *
 from dsampleMosaic import *
 from testModule import *
-from spatialAnalysis import *
+from extractionHISA import *
 from spectralAnalysis import *
 from cleanMosaic import *
 from splitMosaic import *

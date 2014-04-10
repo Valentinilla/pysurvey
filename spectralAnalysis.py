@@ -10,20 +10,26 @@ class spectralAnalysis(object):
 	
 	def __init__(self,obs,spectralConf):
 
-		self.N_SPECTRAL        = int(spectralConf['n_spectral'])
-		self.MAX_LOOPS         = int(spectralConf['max_loops'])
-		self.RESIDUAL_FRAC     = float(spectralConf['residual_frac'])
-		self.CLIP_SPECTRAL     = float(spectralConf['clip_spectral'])
-		self.GAIN_SPECTRAL     = float(spectralConf['gain_spectral'])
-		self.FWHM_SPECTRAL     = float(spectralConf['fwhm_spectral'])
-		self.HISA_F_SPECTRAL   = float(spectralConf['hisa_f_spectral'])
-		self.TEMP_CRITICAL     = float(spectralConf['temp_critical'])
-		self.FIT_NARROW        = float(spectralConf['fit_narrow'])
-		self.FIT_BROAD         = float(spectralConf['fit_broad'])
-		self.FIT_QUAL          = float(spectralConf['fit_qual'])
-		self.DIP_CUT           = float(spectralConf['dip_cut'])
-		self.FWHM_SPATIAL_HISA = float(spectralConf['fwhm_spatial_hisa'])
-		self.MIN_HISA          = float(spectralConf['min_hisa'])
+		self.survey = obs.survey
+		self.mosaic = obs.mosaic
+		self.species = obs.species
+		self.type = obs.type
+
+
+		N_SPECTRAL        = int(spectralConf['n_spectral'])
+		MAX_LOOPS         = int(spectralConf['max_loops'])
+		RESIDUAL_FRAC     = float(spectralConf['residual_frac'])
+		CLIP_SPECTRAL     = float(spectralConf['clip_spectral'])
+		GAIN_SPECTRAL     = float(spectralConf['gain_spectral'])
+		FWHM_SPECTRAL     = float(spectralConf['fwhm_spectral'])
+		HISA_F_SPECTRAL   = float(spectralConf['hisa_f_spectral'])
+		TEMP_CRITICAL     = float(spectralConf['temp_critical'])
+		FIT_NARROW        = float(spectralConf['fit_narrow'])
+		FIT_BROAD         = float(spectralConf['fit_broad'])
+		FIT_QUAL          = float(spectralConf['fit_qual'])
+		DIP_CUT           = float(spectralConf['dip_cut'])
+		FWHM_SPATIAL_HISA = float(spectralConf['fwhm_spatial_hisa'])
+		MIN_HISA          = float(spectralConf['min_hisa'])
 		
 		self.survey = obs.survey
 		self.mosaic = obs.mosaic
