@@ -8,7 +8,7 @@ import random
 
 
 try:
-	from SimpleDialog import SimpleDialog, map, Param
+	from SimpleDialog import SimpleDialog,map,Param
 except ImportError:
 	pass
 
@@ -165,7 +165,7 @@ class Mosaic(object):
 						flag = 'HI+HISA+H2_column_density'
 					else:
 						typeErrorMsg(self.logger,self.type,typeEntry=self.species)
-	
+
 		filename = path+self.survey+'_'+self.mosaic+'_'+flag+'.fits'
 		checkForFiles(self.logger,[filename])
 		
@@ -197,7 +197,7 @@ class Mosaic(object):
 		if 'ADC_AREA' in self.keyword:
 			self.object = self.keyword['ADC_AREA']
 			del self.keyword['ADC_AREA']
-			self.keyword['OBJECT'] = self.object	
+			self.keyword['OBJECT'] = self.object
 		if 'FREQ0' in self.keyword:
 			self.band = self.keyword['FREQ0']
 			del self.keyword['FREQ0']
@@ -231,7 +231,7 @@ class Mosaic(object):
 		self.zmin = 0
 		self.zmax = 0
 		
-		if self.type == glob_Tb or self.type == glob_ITb:	
+		if self.type == glob_Tb or self.type == glob_ITb:
 			filter1 = self.observation < -1e4
 			filter2 = isnan(self.observation)
 			self.observation[filter1] = 0.
@@ -253,13 +253,12 @@ class Mosaic(object):
 	               			self.zmin = 1
         	       			self.zmax = 410
 
-		
 		self.mosaic = mosaicConf['mosaic']
 		if not load:
 			self._inputs = 'Created '+self.survey+' Mosaic object '+self.species+' '+self.type
 		else:
 			self._inputs = 'Loaded '+self.survey+' Mosaic object '+self.species+' '+self.type
-	
+		
 	#def __getattr__(self, attrname):
 		#try;
 		#return getattr(self.observation, attrname)

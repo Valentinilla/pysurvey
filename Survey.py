@@ -3,14 +3,11 @@
 __author__ = 'S. Federici (DESY)'
 __version__ = '0.1.0'
 
-import re
-
 from SurveyUtils import *
 from Mosaic import *
 from makeMosaic import *
 from makeCorrection import *
 from combineMosaics import *
-from makeAnnuli import *
 from testModule import *
 
 class Survey:
@@ -95,6 +92,8 @@ class Survey:
 		self.spectralConf = spectralConfig
 		self.spatialConf  = spatialConfig
 
+		self.flag_existance = False
+
 		self.ret = re.compile('\n')
 		Print(self.logger,self.surveyConf,'survey')
 
@@ -134,6 +133,7 @@ class Survey:
 		try:
 			self.msc = makeMosaic(self.obs,self.mosaicConf)
 			self.logger.info(self.ret.subn(', ',str(self.msc))[0])
+			self.flag_existance = True
 
 		except(FileNotFound):
 			self.logger.critical("One or more needed files do not exist")
@@ -150,6 +150,10 @@ class Survey:
 		Access mosaic's attributes through self.mosaic
 		"""
 		try:
+			if self.flag_existance:
+				del self.msc
+				self.logger.info("Free memory")
+			
 			self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,load=True)
 			self.logger.info(self.ret.subn(', ',str(self.mosaic))[0])
 			
@@ -192,10 +196,10 @@ class Survey:
 			self.logger.critical("One or more needed files do not exist")
 			return
 
-	def combineMosaics(self,species='HI',type='column density',flag=''):
+	def combineMosaics(self,species='HI',type='column density',dim='2D'):
 		
 		try:
-			self.skyregion = combineMosaics(self.surveyConf,self.mosaicConf,species,type,flag)
+			self.skyregion = combineMosaics(self.surveyConf,self.mosaicConf,species,type,dim)
 			self.logger.info(self.ret.subn(', ',str(self.skyregion))[0])
 			
 		except(FileNotFound):

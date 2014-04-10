@@ -164,7 +164,7 @@ class makeCorrection(object):
 					# With the continuum component
 					#Tfunc = (Ts-Tc)/(Ts-Tc-Tb)
 					# Without the continuum component
-					Tfunc = (Ts)/(Ts-Tb)
+					Tfunc = Ts/(Ts-Tb)
 					
 					Tfunc[Tfunc<1.] = 1. # <------ TO JUSTIFY
 					cTb = log(Tfunc) * Ts

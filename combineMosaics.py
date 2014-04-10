@@ -8,120 +8,144 @@ from SurveyUtils import*
 
 class combineMosaics(object):
 	
-	def __init__(self,surveyConf,mosaicConf,species,type,flag):
+	def __init__(self,surveyConf,mosaicConf,species,type,dim):
 		"""
-		Allow to combine mosaics of column density in a 2D map.
+		Allow to combine mosaics of column density in 2D or 3D map.
+		species = HI, WCO
 		"""
 		self.survey = surveyConf['survey']
 		self.mosaic = mosaicConf['mosaic']
 		self.species = species
 		self.type = type
 		sur = (self.survey).lower()
+
+		flag1, flag2 = '',''
+		
+		if self.species == 'HI':
+			flag1 = 'HI_unabsorbed'
+		if self.species == 'CO':
+			flag1 = 'WCO'
+		
+		if dim == '2D':
+			flag2 = 'column_density'
+		elif dim == '3D':
+			flag2 = 'rings'
 		
 		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_CombineMosaics')
 		
-		path = '/afs/ifh.de/group/that/work-sf/survey/mysurvey/lists/'
-		mosaiclist = path+flag+'.list'
+		path = getPath(self.logger, key='list_mosaic')
+		mosaiclist = path+self.species+'_mosaic.list'
 		checkForFiles(self.logger,[mosaiclist])
 		input = open(mosaiclist,"r")
 		list = input.readlines()
 		first_mosaic = list[0].split('\n')[0]
-		mosaics_number = len(list)
-		sqrt_msc_num = sqrt(mosaics_number)
+		n_msc = len(list)
+		sqrt_n_msc = sqrt(n_msc)
 		
 		if not type==glob_N:
 			self.logger.critical("Allowed type is: '"+glob_N+"'. Your entry is: '"+self.type+"'.")
-			os.exit(0)
-					
-		path = getPath(self.logger, key='lustre_'+sur+'_hi_column_density')
-		ref_mosaic = path+self.survey+'_'+first_mosaic+'_HI_unabsorbed_column_density.fits'
+			sys.exit(0)
+		
+		path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower()+'_column_density')
+		ref_mosaic = path+self.survey+'_'+first_mosaic+'_'+flag1+'_'+flag2+'.fits'
 		checkForFiles(self.logger,[ref_mosaic])
 		
 		f = pyfits.open(ref_mosaic)
 		hdu = f[0]
-		#msc_size = hdu.header['NAXIS']	# 4
-		msc_lon = hdu.header['NAXIS1']	# 1024
-		msc_lat = hdu.header['NAXIS2']	# 1024
-		#msc_ref_lon = float(hdu.header['CRVAL1']) # deg (GLON-CAR)
-		msc_del_lon = float(hdu.header['CDELT1']) # -4.9e-3 deg
-		#msc_ind_lon = float(hdu.header['CRPIX1']) # 513 px
-		#msc_rot_lon = float(hdu.header['CROTA1']) # 0.0
-		#msc_ref_lat = float(hdu.header['CRVAL2']) # deg
-		msc_del_lat = float(hdu.header['CDELT2']) # 4.9e-3 deg
+		msc_size = hdu.header['NAXIS']	# 4
+		msc_x = hdu.header['NAXIS1']	# 1024
+		msc_y = hdu.header['NAXIS2']	# 1024
+		
+		if dim == '3D':
+			msc_z = hdu.header['NAXIS3']
+			#msc_rotz = hdu.keyword["crota3"]
+		
+		msc_dx = float(hdu.header['CDELT1']) # -4.9e-3 deg
+		msc_rotx = float(hdu.header['CROTA1']) # 0.0
+		msc_dy = float(hdu.header['CDELT2']) # 4.9e-3 deg
+		msc_roty = float(hdu.header['CROTA2']) # 0.0
+
 		msc_bunit = hdu.header['bunit']
 
-		self.logger.info("Number of mosaics: %s"%mosaics_number)
-		mosaicList = []
+		self.logger.info("Number of mosaics: %s"%n_msc)
+		
+		# TODO: Sort mosaics according to their coordinates		
+
 		list1,list2 = [],[]
-		skymap = zeros((msc_lat,msc_lon))
-		for m in range(0,mosaics_number):
+		for m in xrange(n_msc):
 			msc_name = list[m].split('\n')[0]
-			mosaic = path+self.survey+'_'+msc_name+'_HI_unabsorbed_column_density.fits'
+			mosaic = path+self.survey+'_'+msc_name+'_'+flag1+'_'+flag2+'.fits'
 			checkForFiles(self.logger,[mosaic])
 			
 			msc_file = pyfits.open(mosaic)
 			hdu = msc_file[0]
 			
-			msc_size = hdu.header['NAXIS']	# 4
-			msc_lon = hdu.header['NAXIS1']	# 1024
-			msc_lat = hdu.header['NAXIS2']	# 1024
-			msc_ref_lon = float(hdu.header['CRVAL1']) # deg (GLON-CAR)
-			msc_del_lon = float(hdu.header['CDELT1']) # -4.9e-3 deg
-			msc_ind_lon = float(hdu.header['CRPIX1']) # 513 px
-			msc_rot_lon = float(hdu.header['CROTA1']) # 0.0
-			msc_ref_lat = float(hdu.header['CRVAL2']) # deg
-			msc_del_lat = float(hdu.header['CDELT2']) # 4.9e-3 deg
-			msc_ind_lat = float(hdu.header['CRPIX2']) # 513 px
-			msc_rot_lat = float(hdu.header['CROTA2']) # 0.0
-			
-			msc_data = hdu.data
-			mosaicList.append([msc_data,m])
-			
-			list1.append([msc_ind_lon,msc_ind_lat])
-			list2.append([msc_ref_lon,msc_ref_lat])
-			
-			if msc_size > 2:
-				self.logger.critical("Mosaic dimension > 2!!")
-				os.exit(0)
+			# select mosaics according to their ID number: 1 down, 2 up
+			# |2|2|2|2|...
+			# |1|1|1|1|...
+			num = re.findall(r'\d',hdu.header['object'])
+			if num[0] == '1': list1.append(hdu)
+			if num[0] == '2': list2.append(hdu)			
 						
-			#print "Mosaic n %s (%s)"%(m,msc_name)
-			#print "- lon0 = %s, lat0 = %s"%(msc_ind_lon,msc_ind_lat)
-			#print "- lon1 = %s, lon2 = %s"%(msc_ind_lon-msc_ind_lon,2*msc_ind_lon)
-			#print "- lat1 = %s, lat2 = %s"%(msc_ind_lat-msc_ind_lat,2*msc_ind_lat)
-			#print "- l0, b0 = %s, %s (deg)"%(msc_ref_lon,msc_ref_lat)
-			#print "- lon_del, lat_del = %s, %s"%(msc_del_lon,msc_del_lat)
-		
-		blon_px = 120 # mosaics overlap by 1.2 deg = 240 px
-		blat_px = 120 #
+		if self.species == 'HI':
+			overlap_lon_px = 224 # mosaics overlap by 1.12 deg = 224 px
+			overlap_lat_px = 224 #
+			# needed for indexes
+			odx = int(overlap_lon_px/2)
+			ody = int(overlap_lat_px/2)
 			
-		msc1 = array(mosaicList[0][0]) # MC1
-		lon1 = 2*list1[0][0]
-		lat1 = 2*list1[0][1]
-		lon1_deg = list2[0][0]
-		lat1_deg = list2[0][1]
-		msc2 = array(mosaicList[1][0]) # MC2
-		lon2 = 2*list1[1][0]
-		lat2 = 2*list1[1][1]
-		lon2_deg = list2[1][0]
-		lat2_deg = list2[1][1]
-		msc3 = array(mosaicList[2][0]) # MD1
-		lon3 = 2*list1[2][0]
-		lat3 = 2*list1[2][1]
-		lon3_deg = list2[2][0]
-		lat3_deg = list2[2][1]
-		msc4 = array(mosaicList[3][0]) # MD2
-		lon4 = 2*list1[3][0]
-		lat4 = 2*list1[3][1]
-		lon4_deg = list2[3][0]
-		lat4_deg = list2[3][1]
+		if self.species == 'CO':
+			overlap_lon_px = 224 # mosaics overlap by 1.12 deg = 224 px
+			overlap_lat_px = 224 #
+			# needed for indexes
+			odx = int(overlap_lon_px/2)
+			ody = int(overlap_lat_px/2)		
+
+		if msc_size == 2:
+			nx = msc_x*(n_msc/2) - overlap_lon_px*((n_msc/2)-1)
+			ny = 2*msc_y - overlap_lat_px		
+			skymap = zeros((ny,nx))
+			
+		if msc_size == 3:
+			nx = msc_x*(n_msc/2) - overlap_lon_px*((n_msc/2)-1)
+			ny = 2*msc_y - overlap_lat_px
+			nz = msc_z		
+			skymap = zeros((nz,ny,nx))
+
+		# Concatenate the lowest mosaics along the longitude axis 
+		# |o|o|o|o|... = |o|o|o|o|
+		# |x|x|x|x|... = |   x   |
+		c1 = concatenateMosaics(list1,dim,odx)
 		
-		c1 = concatenate((msc1[:,:lon1-blon_px],msc3[:,blon_px:lon3]),axis=1)
-		c2 = concatenate((msc2[:,:lon2-blon_px],msc4[:,blon_px:lon4]),axis=1)
-		skymap = concatenate((c1[:lat1-blat_px,:],c2[blat_px:lat1,:]),axis=0)		
+		# Concatenate the upmost mosaics along the latitude axis
+		# |x|x|x|x|... = |   x   |
+		# |x|x|x|x|... = |   x   |
+		c2 = concatenateMosaics(list2,dim,odx)
+			
+		# Concatenate the two raw of mosaics along the latitude axis
+		# |   x   |... = |   x   |
+		# |   x   |...   |       |
+		if dim == '2D':
+			skymap = concatenate( (c1[:-ody,:],c2[ody:,:]), axis=0)
+		if dim == '3D':		
+			skymap = concatenate( (c1[:,:-ody,:],c2[:,ody:,:]), axis=1)
+
 		# Header keys
-		crpix1,crpix2 = round(skymap.shape[1]/2.),round(skymap.shape[0]/2.)
-		crval1 = (lon1_deg+lon3_deg-2*blon_px*msc_del_lon)/2.
-		crval2 = (lat1_deg+lat3_deg-2*blat_px*msc_del_lat)/2.
+		# CRVAL1
+		crv1_msc1 = list1[((n_msc/4)-1)].header['crval1']
+		crv1_msc2 = list1[((n_msc/4))].header['crval1']
+		crval1 = (crv1_msc1 + crv1_msc2)/2.
+		# CRVAL2
+		crv2_msc1 = list1[0].header['crval2'] # -1
+		crv2_msc2 = list2[0].header['crval2'] # 3
+		crval2 = (crv2_msc1 + crv2_msc2)/2.			
+
+		# CRPIXN
+		if dim == '2D':
+			crpix1,crpix2 = round(skymap.shape[1]/2.),round(skymap.shape[0]/2.)
+		if dim == '3D':
+			crpix1,crpix2 = round(skymap.shape[2]/2.),round(skymap.shape[1]/2.)
+		
 		lonsign = getSign(crval1,string=True)
 		latsign = getSign(crval2,string=True)
 		
@@ -130,27 +154,36 @@ class combineMosaics(object):
 		newheader["ctype1"] = ("GLON-CAR","Coordinate type")
 		newheader["crval1"] = (crval1,"Galactic longitude of reference pixel")
 		newheader["crpix1"] = (crpix1,"Reference pixel of lon")
-		newheader["cdelt1"] = (msc_del_lon,"Longitude increment")
-		newheader["crota1"] = (msc_rot_lon,"Longitude rotation")
+		newheader["cdelt1"] = (msc_dx,"Longitude increment")
+		newheader["crota1"] = (msc_rotx,"Longitude rotation")
 		newheader["cunit1"] = ("deg","Unit type")
 		
 		newheader["ctype2"] = ("GLAT-CAR","Coordinate type")
 		newheader["crval2"] = (crval2,"Galactic latitude of reference pixel")
 		newheader["crpix2"] = (crpix2,"Reference pixel of lat")
-		newheader["cdelt2"] = (msc_del_lat,"Latitude increment")
-		newheader["crota2"] = (msc_rot_lat,"Latitude rotation")
+		newheader["cdelt2"] = (msc_dy,"Latitude increment")
+		newheader["crota2"] = (msc_roty,"Latitude rotation")
 		newheader["cunit2"] = ("deg","Unit type")
-		
+
+		if dim == '3D':
+			newheader["ctype3"] = ("Ring","Coordinate type")
+			newheader["crval3"] = (1,"Ring of reference pixel")
+			newheader["crpix3"] = (1,"Reference pixel of ring")
+			newheader["cdelt3"] = (1,"Ring increment")
+			#newheader["crota3"] = (msc_rotz,"Ring rotation")
+
 		newheader["bunit"] = (msc_bunit,"Map units")
 		newheader["datamin"] = (amin(skymap),"Min value")
 		newheader["datamax"] = (amax(skymap),"Max value")
 		newheader["object"] = (self.survey+" Skymap",self.survey+" Mosaic")
 		
 		results = pyfits.PrimaryHDU(skymap, newheader)
+		#results.scale('int16', '', bscale=1, bzero=32768)
 		
 		# Output file
 		self.logger.info("Write data to a fits file in...")
-		skymap_name = '%s_G%.2f%s%.2f'%(self.survey,crval1,latsign,crval2)
+		path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower())
+		skymap_name = path+'%s_G%.2f%s%.2f'%(self.survey,crval1,latsign,crval2)
 		results.writeto(skymap_name+'.fits', output_verify='fix')
 		self.logger.info("%s"%path)
 		self.logger.info("Done")

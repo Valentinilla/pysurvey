@@ -10,8 +10,7 @@ class makeMosaic(object):
 	
 	def __init__(self,obs,mosaicConf):
 		"""
-		Generate mosaics of 'unabsorbed HI','HISA' (not HI+HISA becasue is the equivalent of the CGPS data),
-		and velocity integrated 'CO' (Wco)
+		Generate mosaics of 'unabsorbed HI','HISA', and velocity integrated 'CO' (Wco)
 		"""
 		self.survey = obs.survey
 		self.mosaic = obs.mosaic
@@ -53,6 +52,12 @@ class makeMosaic(object):
 				if self.survey == 'SGPS':
 					path = getPath(self.logger, key="lustre_sgps_hisa")
 				flag = 'HISA'
+			elif self.species == 'HI+HISA':
+				if self.survey == 'CGPS':
+					path = getPath(self.logger, key="lustre_cgps_hi")
+				if self.survey == 'SGPS':
+					path = getPath(self.logger, key="lustre_sgps_hi")
+				flag = 'HI+HISA'
 			elif self.species == 'CO':
 				path = getPath(self.logger, key="lustre_cgps_co")
 				flag = 'CO'
@@ -60,7 +65,7 @@ class makeMosaic(object):
 		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_line.fits'
 		checkForFiles(self.logger,[file],existence=True)
 
-		self.logger.info("Open file and get data...")
+		self.logger.info("Open the file and get the data...")
 
 		if not self.survey == 'CGPS':
 
@@ -181,26 +186,37 @@ class makeMosaic(object):
 		else:
 			
 			# Get emission data and velocity interval
-			Tb = obs.observation[:,:,:,:]
-			# free memory
-			del obs.observation
+			Tb = obs.observation[:,:,:,:].astype(float32)
 			dv = fabs(obs.dz/1000.) # [velocity] = km s-1
 			vel = obs.zarray/1000.
+			zmin = obs.zmin
+			zmax = obs.zmax
+			
+			# free memory
+			del obs.observation
 			del obs.zarray
-						
-			if self.species == 'HI' or self.species == 'HISA':
 
-				# Using Multiprocessing if enough cpus are available
-				import multiprocessing
-				samples_list = array_split(Tb[0,obs.zmin:obs.zmax,:,:], multiprocessing.cpu_count())
-				self.logger.info("Running on %i cpu(s)"%(multiprocessing.cpu_count()))
-				pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
-				#import itertools
-				#results = pool.map(correct_data, itertools.izip(itertools.repeat(logger),samples_list))
-				results = pool.map(correct_data, samples_list)
-				del samples_list
-				Tb[0,obs.zmin:obs.zmax,:,:] = concatenate(results).astype(Tb.dtype)
-				del results
+			if not self.species == 'CO':
+				
+				if self.species == 'HI':
+					# Data correction
+					# Using Multiprocessing if enough cpus are available
+					import multiprocessing
+					
+					ncpu = int(ceil(multiprocessing.cpu_count()/3))
+					
+					#samples_list = array_split(Tb[0,zmin:zmax,:,:], ncpu)
+					#self.logger.info("Running on %i cpu(s)"%(ncpu))
+					#pool = multiprocessing.Pool(processes=ncpu)
+					#results = pool.map(correct_data2, samples_list)
+					#Tb[0,obs.zmin:obs.zmax,:,:] = concatenate(results).astype(Tb.dtype)
+					
+					#del samples_list
+					#del results
+					Tb[0,obs.zmin:obs.zmax,:,:] = correct_data2(Tb[0,zmin:zmax,:,:])
+					
+				if self.species == 'HISA':
+					Tb = zeros(Tb.shape,dtype=float32)
 				
 				path_data = getPath(self.logger, key="cgps_hisa_dat")
 				datafile = path_data+self.survey+'_'+self.mosaic+'_HISA.dat'		
@@ -221,24 +237,19 @@ class makeMosaic(object):
 					k = ha-l*1024
 					
 					if self.species == 'HISA':
-						#if type == 'unabsorbed brightness temperature':
-						#	result_array[0,m,l,k] = nc #Tb[0,m,l,k]-nd
-						#elif type == 'amplitude':
-						#result_array[0,m,l,k] = abs(nd)
-						Tb[0,m,l,k] = abs(nd)
+						Tb[0,m,l,k] = fabs(nd)
 					elif self.species == 'HI':
-						#if type == 'unabsorbed brightness temperature':
-						Tb[0,m,l,k] = nc #Tb[0,m,l,k]-nd
-						#if type == 'amplitude':
-						#	Tb[0,m,l,k] = nd #Tb[0,m,l,k]-nd
-				file = "/lustre/fs4/group/that/sf/Surveys/CGPS/HI/corrected_tot2.fits"
+						Tb[0,m,l,k] = nc
+					elif self.species == 'HI+HISA':
+						Tb[0,m,l,k] = nc + fabs(nd)
+				
 			elif self.species == 'CO':
 				
 				self.logger.info("Applying Moment Mask method (T.M.Dame)...")
 				T = Tb[0,:,:,:]
 				
 				# Calculate the rms for raw data
-				rms_t = getRMS(self.logger,T,obs.zmax)
+				rms_t = getRMS(self.logger,T,zmax)
 				
 				# Degrading the resolution spatially and in velocity by a factor of 2
 				fwhm_spat = 2 #px
@@ -246,7 +257,7 @@ class makeMosaic(object):
 				Tsmooth = ndimage.gaussian_filter(T,sigma=(sig,sig,sig),order=(0,0,0))
 				
 				# Calculate the rms for smoothed data
-				rms_ts = getRMS(self.logger,Tsmooth,obs.zmax)
+				rms_ts = getRMS(self.logger,Tsmooth,zmax)
 				
 				# Set the clipping level equal 5 times the rms noise in Tsmooth
 				Tclipping = 5*rms_ts
@@ -266,10 +277,11 @@ class makeMosaic(object):
 				
 			obs.keyword['datamin'] = amin(Tb)
 			obs.keyword['datamax'] = amax(Tb)
-				
+			
+			#results = pyfits.CompImageHDU(Tb[0],obs.keyword,'image')
 			results = pyfits.PrimaryHDU(Tb,obs.keyword)
-			results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)		
-				
+			#results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)
+
 		# Output file
 		self.logger.info("Write scaled data to a fits file in...")
 		results.writeto(file, output_verify='fix')

@@ -3,6 +3,8 @@
 __author__ = 'S. Federici (DESY)'
 __version__ = '0.1.0'
 
+import re
+
 import os
 import sys
 import logging
@@ -13,7 +15,6 @@ from lmfit import minimize, Parameters
 from lmfit.printfuncs import*
 
 from numpy import *
-from numpy.lib.stride_tricks import as_strided
 
 from scipy.signal import fftconvolve
 from scipy.optimize import fsolve
@@ -38,74 +39,6 @@ glob_N   = 'column density'
 #################################################
 #	START GENERAL FUNCTIONS
 #################################################
-def setNewHeader(surveyLogger,key):
-
-	newheader = pyfits.Header()
-	
-	keyword_list1 = ["ctype1","crval1","crpix1","cdelt1","crota1","cunit1"]
-	keyword_list2 = ["ctype2","crval2","crpix2","cdelt2","crota2","cunit2"]
-
-	if key["ctype1"] == "GLON-CAR":
-		comments_list1 = ["Coordinate type","Galactic longitude of reference pixel",\
-			"Reference pixel of lon","Longitude increment","Longitude rotation","Unit type"]
-		if not("crota1" or "crota2") in key:
-			key["crota1"] = 0.0
-			key["crota2"] = 0.0
-		if not "cunit1" in key:
-			key["cunit1"] = "deg"
-		
-		for k in keyword_list1:
-			key[k] = (key[k],key.comments[k])
-
-		
-	if key["ctype2"] == "GLAT-CAR":
-		key["cunit2"] = ("deg", "Unit type")
-	if not("crota1" or "crota2") in key:
-			key["crota1"] = (0.0,"Longitude rotation")
-			key["crota2"] = (0.0,"Latitude rotation")
-
-
-	keyword_list3 = ["ctype3","crval3","crpix3","cdelt3","crota3","cunit3"]
-	keyword_list4 = ["ctype4","crval4","crpix4","cdelt4","crota4","cunit4"]
-	keyword_list5 = ["bunit","datamin","datamax","object","image","date"]
-	
-	if key["naxis"] == 2:
-		keyword_list = keyword_list1+keyword_list2
-	elif key["naxis"] == 3:
-		keyword_list = keyword_list1+keyword_list2+keyword_list3
-	elif key["naxis"] == 4:
-		keyword_list = keyword_list1+keyword_list2+keyword_list3+keyword_list4
-	
-	for k in keyword_list:
-		#newheader[k] = (key[k],key.comments[k])
-		print key[k],key.comments[k]
-	
-	exit(0)
-	try:
-		if key["ctype1"] == "GLON-CAR":
-			newheader["ctype1"] = (key["ctype1"],"Coordinate type")
-			newheader["crval1"] = (key["crval1"],"Galactic longitude of reference pixel")
-			newheader["crpix1"] = (key["crpix1"],"Reference pixel of lon")
-			newheader["cdelt1"] = (key["cdelt1"],"Longitude increment")
-			newheader["crota1"] = (key["crota1"],"Longitude rotation")
-			newheader["cunit1"] = (key["cunit1"],"Unit type")
-		
-		newheader["ctype2"] = (key["ctype2"], key.comments["ctype2"])
-		newheader["crval2"] = (key["crval2"], key.comments["crval2"])
-		newheader["crpix2"] = (key["crpix2"], key.comments["crpix2"])
-		newheader["cdelt2"] = (key["cdelt2"], key.comments["cdelt2"])
-		newheader["crota2"] = (key["crota2"], key.comments["crota2"])
-		newheader["cunit2"] = (key["cunit2"], key.comments["cunit2"])
-				
-		newheader["bunit"] = ("atoms cm-2", "Map units")
-		newheader["datamin"] = ("%e"%amin(N))
-		newheader["datamax"] = ("%e"%amax(N))
-		newheader["object"] = ("Mosaic "+self.mosaic, self.survey+" Mosaic")
-		
-		return newheader
-	except:
-		surveyLogger.critical("Some keyword missing. Cannot generate a new header!")
-
 def getMosaicCoordinate(surveyLogger,obs,survey,lon,lat,side):
 	"""
 	This function allows to generate 'mosaics' like those
@@ -328,28 +261,6 @@ def spatialAverage1D(array,i,j,n_spec): #7px
 			#print array[k,j1:j2,i1:i2].shape
 	return smoothed
 
-def extrap(x, xp, yp):
-	"""
-	numpy.interp function with linear extrapolation
-	"""
-	y = interp(x, xp, yp)
-	y[x < xp[0]] = yp[0] + (x-xp[0]) * (yp[0]-yp[1]) / (xp[0]-xp[1])
-	y[x > xp[-1]] = yp[-1] + (x-xp[-1]) * (yp[-1]-yp[-2]) / (xp[-1]-xp[-2])
-	return y
-
-def find_ge(surveyLogger,a, x):
-	import bisect
-	i = bisect.bisect_left(a,x)
-	if x == 0.:
-		i = 0
-	if x > a[len(a)-1]:
-		i = len(a)-1
-	if i != len(a):
-		return i
-	else:
-		surveyLogger.critical("Cannot find the right annulus!")
-		raise ValueError
-
 #################################################
 #	END GENERAL FUNCTIONS
 #################################################
@@ -370,6 +281,55 @@ def getRMS(surveyLogger,T,zmax):
 	
 	surveyLogger.info("RMS = %s"%rms)
 	return rms
+
+
+def correct_data2(T,rms=4):
+
+	nz = T.shape[0]
+	#print nz
+	def disk_structure(n):
+		struct = zeros((2 * n + 1, 2 * n + 1))
+		x, y = indices((2 * n + 1, 2 * n + 1))
+		mask = (x - n)**2 + (y - n)**2 <= n**2
+		struct[mask] = 1
+		return struct.astype(bool)
+
+	def granulometry(data, n):#sizes=None):
+		#s = max(data.shape)
+		#if sizes == None:
+		#	sizes = range(1, s/2, 2)
+		#granulo = [ndimage.binary_opening(data, \
+		#	structure=disk_structure(n)).sum() for n in sizes]
+		granulo = ndimage.binary_opening(data,structure=disk_structure(n))
+		return granulo
+			
+	import matplotlib.pyplot as plt
+
+	for z in xrange(nz):
+		#ndimage.grey_closing(T[z,:,:], size=(3,3))
+		#T[z,:,:] = ndimage.binary_closing(T[z,:,:],structure=disk_structure(18))
+		mask = T[z,:,:] < 0#T[z,:,:].mean()
+		#granulo = granulometry(mask,18)#,sizes = arange(2, 19, 4))
+		#plt.figure(figsize=(6, 2.2))
+		plt.figure()
+
+		#plt.subplot(121)
+		plt.imshow(mask, cmap=plt.cm.gray)
+		opened = ndimage.binary_closing(mask, structure=disk_structure(2))
+		opened_more = ndimage.binary_opening(mask, structure=disk_structure(20))
+		plt.contour(opened, [0.5], colors='b', linewidths=2)
+		plt.contour(opened_more, [0.5], colors='r', linewidths=2)
+		plt.axis('off')
+		#plt.subplot(122)
+		#plt.plot(arange(2, 19, 4), granulo, 'ok', ms=8)
+		
+		#plt.subplots_adjust(wspace=0.02, hspace=0.15, top=0.95, bottom=0.15, left=0, right=0.95)
+		plt.show()
+		
+	exit(0)
+
+	return T
+
 
 # HI corrections
 def correct_data(T,rms=4):
@@ -460,29 +420,33 @@ def correct_data(T,rms=4):
 #	START ROTATION CURVE
 #################################################
 def rotation_curve( (T,vec) ):
-
-	lon = vec[2] #mosaic.xarray
-	lat = vec[1] #mosaic.yarray
-	vel = vec[0] #mosaic.zarray/1000.
-	dv = vec[3] #fabs(mosaic.dz/1000.)
-	path = vec[4]
-
+	"""
+	Rotation curve of the Galaxy - M.Pohl, P.Englmaier, and N.Bissantz
+	(The Astrophysical Journal, 677:283-291, 2008)
+	Limits: galactic longitude < |165 deg|, galactic latitude < |5 deg|.
+	"""
+	#surveyLogger = vec[10]
+	species = vec[0]
+	
+	lon = vec[3]
+	lat = vec[2]
+	vel = vec[1]
+	dv = vec[4]
+	path = vec[5]
+	C = vec[6]
+	Ts = vec[7]
+	
+	rmin = vec[8]
+	rmax = vec[9]
+	annuli = len(rmin)
+	
 	nlon = T.shape[2]
 	nlat = T.shape[1]
 	nvel = T.shape[0]
-		
+	
 	# free memory
-	del vec#mosaic.xarray
-	#del mosaic.yarray
-	#del mosaic.zarray
-
-	# Boundaries of Galactocentric Annuli - M.Ackermann et al
-	# (The Astrophysical Journal, 750:3-38, 2012)
-	annuli = 17
-	rmin = [0.,1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.]
-	rmax = [1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.,50.]
-	ann_boundaries = [ [i,rmin[i],rmax[i]] for i in xrange(annuli)]
-
+	del vec
+	
 	# Array to store results
 	cubemap = zeros((annuli,nlat,nlon),dtype=float)			
 	#NHI = zeros((annuli,nlat,nlon),dtype=float)
@@ -524,13 +488,21 @@ def rotation_curve( (T,vec) ):
 	yha = zeros(3800,dtype=int)
 
 	# Line properties
-	sigma_hi = 4.		#hi velocity dispersion (from LAB) [km s-1]
-		
-	sigma_co = 3.		#co velocity dispersion [km s-1]
+	sigma = 0. # velocoty dispersion (standard deviation of the distribution)
+	if species == 'HI':
+		sigma = 4.	#hi velocity dispersion (from LAB) [km s-1]
+	elif species == 'CO':
+		sigma = 3.	#co velocity dispersion [km s-1]
+	elif species == 'HISA':
+		sigma = 2.	#hisa velocity dispersion [km s-1]
+
+	sigma_co = sigma
 	sigma_co_inner = 5.	#co velocity dispersion inner galaxy [km s-1]
-		
-	ivzero = int(floor(20./dv))  #24 CO CGPS; 17 LAB
-	iv_vec = arange(2*ivzero+1)  #49 CO CGPS
+	
+	# number of velocities elements the spectral line is made up
+	nv = 20
+	ivzero = int(floor(nv/dv))  #normalize to the velocity resolution of the survey (24 CO CGPS; 17 LAB)
+	iv_vec = arange(2*ivzero+1) #take a range around the peak (49 CO CGPS)
 
 	# Define dummy line profile and its weight for W_co
 	line = exp(-0.5*(dv*(iv_vec-ivzero)/sigma_co)**2)
@@ -592,7 +564,9 @@ def rotation_curve( (T,vec) ):
 	# Array definition
 	true_dis = dbin*(0.5+arange(N))
 	vbgr = zeros(N,dtype=float)
-		
+	
+	report = open("report_"+species+".dat","w")
+	
 	for l in xrange(0,nlon):
 		glo_deg = lon[l]
 		#surveyLogger.info("%i) longitude: %.3f"%(l,lon[l]))
@@ -616,14 +590,14 @@ def rotation_curve( (T,vec) ):
 					
 				# Define intervals and heights: Equations (4)   
 				z = z_sun+true_dis*sin(glat)
-				proj_dis = true_dis*cos(glat)
-				radi = sqrt(r_sun**2+proj_dis**2-2*r_sun*proj_dis*cos(glon)) # distance btw r_sun and proj_dis
+				r_proj = true_dis*cos(glat)
+				radi = sqrt(r_sun**2+r_proj**2-2*r_sun*r_proj*cos(glon)) # distance btw r_sun and r_proj
 					
 				# Bissantz & Gerhard velocities
 				xdir = ex_tan*cos(glon)+ex_norm*sin(glon)
 				ydir = ey_tan*cos(glon)+ey_norm*sin(glon)
-				xha = 100+floor(10*(x_sun_sph+proj_dis*xdir))
-				yha = 99-floor(10*(y_sun_sph+proj_dis*ydir))
+				xha = 100+floor(10*(x_sun_sph+r_proj*xdir))
+				yha = 99-floor(10*(y_sun_sph+r_proj*ydir))
 				ix = where((xha >= 0.) & (xha <= 199.) & (yha >= 0.) & (yha <= 199.))
 				cx = size(ix[0])
 				xha = xha.astype(int)
@@ -666,21 +640,21 @@ def rotation_curve( (T,vec) ):
 				rot_curve = hnb*rotc[hnc]+hnd*rotc[hna]
 				# Uncorrected radial velocity: Equation (5)
 				v_lsr = (r_sun*rot_curve/radi-v_sun)*sin(glon)*cos(glat)
-				#plotFunc(proj_dis,v_lsr)
-					
+				
 				# Extrapolate vbgr
 				if(cos(glon)>0.1):
 					phn = int(round(40.*pmean-5.))
 					vmean = sum( vbgr[phn-5:phn] )/6.
 					vrmean = sum( v_lsr[phn-5:phn] )/6.
 					vbgr[phn+1:N-1] = vmean-vrmean+v_lsr[phn+1:N-1]
+				
 				# Merging
 				wradi = where((9-radi)/2 < 0.,0.,(9-radi)/2)
 				veff = v_lsr+(vbgr-v_lsr)*where(wradi>1.,1.,wradi)		
 				# Corrected, effective velocity: Equation (7)
 				veff = movingaverage1D(veff,7)-vpec
-				veff[-3:] = veff[-4]	
-				#plotFunc(proj_dis,veff)
+				veff[-3:] = veff[-4]
+				#plotFunc(r_proj,veff)
 
 				# Weights from delta veff
 				dveff = array(veff)
@@ -690,13 +664,7 @@ def rotation_curve( (T,vec) ):
 				weight_veff = zeros(veff.shape)
 				# Equation (14)
 				weight_veff = where((dveff+1.e-8)>dv,dv,dveff+1.e-8)
-				#plotFunc(proj_dis,veff)
-				#print "dveff"
-				#print dveff[0:5]
-				#print "weight"
-				#print weight_veff[0:5]
-				#exit(0)
-					
+									
 				# Line spectrum
 				spec = array(nvel)
 				spec = T[:,b,l]
@@ -708,23 +676,30 @@ def rotation_curve( (T,vec) ):
 					
 				wco = abs(dv*sum(spec))
 				wcb = wco/sigma_line
-
-				#plotFunc(proj_dis,veff)
-					
+				wco_previous = 0
+				cnt1 = 0
 				# Start deconvolution
 				while(wco > residual_line):
-						
+					
 					ivpeak = argmax(rspec)
 					vpeak = vel[ivpeak]
-						
-					amp = amp_frac*rspec[ivpeak]
-					amp = where(wcb>amp,amp,wcb)
+
+					if species == 'HI':
+						amp = amp_frac*log(Ts/(Ts-rspec[ivpeak]))*Ts
+						amp = where(wcb>amp,amp,wcb)
+					elif species == 'CO':			
+						amp = amp_frac*rspec[ivpeak]
+						amp = where(wcb>amp,amp,wcb)
+					#elif species == 'HISA':
+					#	amp = amp_frac*get_ampHISA(survey,rspec[ivpeak])
+					
+					#amp = where(wcb>amp,amp,wcb)
 					ivlow = ivpeak-ivzero
 					ivhigh = ivpeak+ivzero
-						
-					if(ivlow > -0.5):
+					
+					if(ivlow >= 0):
 						iv1 = 0
-						if(ivhigh < (nvel-0.5)):
+						if(ivhigh < nvel):
 							iv2 = size(iv_vec)-1
 							sigma_line = sigma_co*sqrt(2.*pi)
 							sigma_line_inner = sigma_co_inner*sqrt(2.*pi)
@@ -745,17 +720,17 @@ def rotation_curve( (T,vec) ):
 					cnt_ivgood = size(ivgood[0])
 					#print cnt_ivgood
 					#print ivgood
-					#print veff[ivgood],vpeak,proj_dis[ivgood]
+					#print veff[ivgood],vpeak,r_proj[ivgood]
 					
 					linevpeak = ones(veff.shape)*vpeak
-					#plotFunc(proj_dis[0:30],veff[0:30],veff[0:30]+dveff[0:30],linevpeak[0:30])
+					#plotFunc(r_proj[0:30],veff[0:30],veff[0:30]+dveff[0:30],linevpeak[0:30])
 					#exit(0)
 						
 					# Standard selection of locations
 						
 					vlist = fabs(veff[0:dimax]-vpeak)
-					#plotFunc(proj_dis[0:dimax],veff[0:dimax],vlist[0:dimax],linevpeak[0:dimax])
-						
+					#plotFunc(r_proj[0:dimax],veff[0:dimax],vlist[0:dimax],linevpeak[0:dimax])
+						 
 					# Checking if the matching gas velocity exceeds v offset or is in the inner Galaxy 
 					if((min(vlist)>v_offset) and (abs(glo_deg)<lon_inner)):
 						ivmatch = argsort(vlist[hzc:hzd])+hzc
@@ -789,8 +764,8 @@ def rotation_curve( (T,vec) ):
 						zc = 0.
 						# Warp in the outer region of the Galaxy (r >= 11 kpc)
 						if(radi[j] > 10.):
-							sphi = proj_dis[j]*sin(glon)/radi[j]
-							cphi = (proj_dis[j]*cos(glon)-r_sun)/radi[j]
+							sphi = r_proj[j]*sin(glon)/radi[j]
+							cphi = (r_proj[j]*cos(glon)-r_sun)/radi[j]
 							nrx = floor(10.*(radi[j]-10.))
 							sphia = sphi*cos(phia[nrx])-cphi*sin(phia[nrx])
 							sphib = 2.*sphi*cphi*cos(phia[nrx])+(sphi**2-cphi**2)*sin(phia[nrx])
@@ -809,209 +784,184 @@ def rotation_curve( (T,vec) ):
 
 					wgn = 0.
 					wtot = sum(wa)
-					#ika.astype(int)
-						
-					#print roots
-					#print ilocation[0:roots]
-					#print ivmatch[0:roots]
-					#exit(0)
-
-					# add W_co (= sigma_line*amp) to density vector
-					for i in xrange(0,roots):
-						#j = ika[i]
+					
+					# add W_co (= sigma_line*amp) to map
+					for i in xrange(roots):
 						k = ilocation[i]
-						#print "k = %.3f j = %.3f"%(k,j)
-						#print "td = %.3f pd = %.3f"%(true_dis[k],proj_dis[k])
 						if(radi[k] < 1.): wgn += wa[i]/wtot
 						wga = wa[i]/wtot
-
-						for a in xrange(0,annuli):
-							if(proj_dis[k] > rmin[a]) and (proj_dis[k] < rmax[a]):
-								cubemap[a,b,l] += wga*amp*sigma_line
-								#print k,proj_dis[k],rmin[a],rmax[a],a
-							#else:
-								#print k
 						
+						if species == 'HI':	
+							for a in xrange(annuli):
+								if(r_proj[k] >= rmin[a]) and (r_proj[k] < rmax[a]):
+									cubemap[a,b,l] += wga*amp*sigma_line*C
+								if (r_proj[k] > 50.):
+									print "Distance > 50. kpc! (%.2f)"%r_proj[k]
+						elif species == 'CO':
+							for a in xrange(annuli):
+								if(r_proj[k] >= rmin[a]) and (r_proj[k] < rmax[a]):
+									cubemap[a,b,l] += wga*amp*sigma_line
+								if (r_proj[k] > 50.):
+									print "Distance > 50. kpc! (%.2f)"%r_proj[k]
+						elif species == 'HISA':
+							for a in xrange(annuli):
+								if(r_proj[k] >= rmin[a]) and (r_proj[k] < rmax[a]):
+									amp = amp_frac*get_ampHISA('CGPS','MC1',r_proj[k],ivpeak,rspec[ivpeak])
+									amp = where(wcb>amp,amp,wcb)
+									cubemap[a,b,l] += wga*amp*(sigma_line*sqrt(8*log(2)))*C
+								if (r_proj[k] > 50.):
+									print "Distance > 50. kpc! (%.2f)"%r_proj[k]
+					
 					wgo = 1.-wgn
+
+					wco_previous = wco
 					spec[ivlow:ivhigh] = spec[ivlow:ivhigh]-wgo*amp*line[iv1:iv2]-wgn*amp*line_inner[iv1:iv2]*sigma_line/sigma_line_inner
 					rspec = fftconvolve(spec,lim,'same')
 					wco = fabs(dv*sum(spec))
 					wcb = wco/sigma_line
-	
+					
+					if wco > wco_previous:
+						wco = residual_line
+						wcb = wco/sigma_line
+						#print "wco = %.3f, [l,b] = [%i,%i]"%(wco,l,b)
+						#plotFunc(vel,rspec,spec)
+
+					cnt1 += 1
+					if cnt1 > 400:
+						string = "\ncnt1 = %i\n"%(cnt1)
+						string += "[glo,glat] = [%.4f,%.4f] - [l,b] = [%i,%i]\n"%(glo_deg,gla_deg,l,b)
+						string += "1) wco = %.3f\n"%(wco)
+						wco = residual_line
+						wcb = wco/sigma_line
+						string += "2) wco = %.3f, wco_previous = %.3f\n"%(wco,wco_previous)
+						report.write(string)
+					#	plotFunc(vel,rspec,spec)
+			
+	report.close()	
 	return cubemap
-
-
-
-
-def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
-	"""
-	Rotation curve of the Galaxy - M.Pohl, P.Englmaier, and N.Bissantz
-	(The Astrophysical Journal, 677:283-291, 2008)
-	Limits: galactic longitude < |165 deg|, galactic latitude < |5 deg|.
-	"""
-	path = getPath(surveyLogger,'rotcurve_mpohl')	
-	
-	# Read in SPH model results
-	# Get Bissantz's data
-	file = path+'testvr1.dat'
-	input = open(file,'r')
-	bissantz = input.read().split()
-	n1 = 200
-	vrs = array(bissantz).reshape(n1,n1)
-	vrs = vrs.astype(float)
-	#print vrs[100,98]  #-79.1474
-	#print vrs[100,99]  #-56.3561
-	#print vrs[100,100] #-25.6225
-	
-	R = 0.5
-	xa = -10.+0.1*(R+arange(n1))
-	ya = -10.+0.1*(R+arange(n1))
-	rb = zeros((n1,n1),dtype=float)
-	for i in range(0,n1-1):
-		rb[:,i] = sqrt(xa[i]**2+ya**2)
-	ia = where(rb > 8.0)
-	vrs[ia] = 0.
-	
-	# Position of sun in SPH model and 
-	# unit vectors (e) to GC (tangential) 
-	# and l = 90 (normal) direction
-	x_sun_sph = 7.518  #kpc
-	y_sun_sph = -2.735 #kpc
-	r_sun_sph = sqrt(x_sun_sph**2+y_sun_sph**2)
-	ex_tan = -x_sun_sph/r_sun_sph
-	ey_tan = -y_sun_sph/r_sun_sph
-	ex_norm = -ey_tan
-	ey_norm = ex_tan
-	xha = zeros(3800,dtype=int)
-	yha = zeros(3800,dtype=int)
-	
-	# Read in rotation curve
-	file = path+'rotcurv4.dat'
-	input = open(file,'r')
-	rotation = input.readlines() #4700 lines
-	rotc = zeros((len(rotation)),dtype=float)
-	drot = zeros((len(rotation)),dtype=float)
-	i=0
-	for value in rotation:
-		ha = float(value.split('\n')[0].split()[0])
-		rotc[i] = float(value.split('\n')[0].split()[1])
-		drot[i] = float(value.split('\n')[0].split()[2])
-		i=i+1
-	
-	# Array definition
-	true_dis = 0.05*(0.5+arange(760))
-	vbgr = zeros((760),dtype=float)
-	
-	r_sun = 8.    #kpc
-	z_sun = 0.015 #kpc
-	v_sun = 210.  #km s-1
-	
-	#glo_deg = 30.
-	#glat_deg = 0.
-	#vlsr = -10.
-
-	if (abs(glo_deg) < 165.):
-		glon = radians(glo_deg)
-		glat = radians(gla_deg)
-		pmean = r_sun*cos(glon)
-		dismin = floor(r_sun*abs(cos(glon))/0.05)
-		radmin = floor(r_sun*abs(sin(glon))/0.05)
-		hzp = 12+radmin
-		hzc = dismin-hzp
-		hzd = dismin+hzp
-		vbgr[:] = 0.
-		
-		# Calculate peculiar velocity of the sun: Equation (6)
-		vpec = 10.*cos(glon)*cos(glat)+5.2*sin(glon)*cos(glat)+7.2*sin(glat)
-		
-		# Define intervals and heights: Equations (4)   
-		z = z_sun+true_dis*sin(glat)
-		proj_dis = true_dis*cos(glat)
-		radi = sqrt(r_sun**2+proj_dis**2-2*r_sun*proj_dis*cos(glon)) # distance btw r_sun and proj_dis
-		
-		# Bissantz & Gerhard velocities
-		xdir = ex_tan*cos(glon)+ex_norm*sin(glon)
-		ydir = ey_tan*cos(glon)+ey_norm*sin(glon)
-		xha = 100+floor(10*(x_sun_sph+proj_dis*xdir))
-		yha = 99-floor(10*(y_sun_sph+proj_dis*ydir))
-		ix = where((xha >= 0.) & (xha <= 199.) & (yha >= 0.) & (yha <= 199.))
-		cx = size(ix[0])
-		xha = xha.astype(int)
-		yha = yha.astype(int)
-		if(cx > 0.5):
-			vbgr[ix[0]] = vrs[yha[ix[0]],xha[ix[0]]]
-		
-		# Remove data holes by linear interpolation
-		dmax = floor(16.*cos(glon)/0.05)
-		if(dmax>6):
-			vba = zeros(vbgr.shape)
-			if(vbgr[0]==0.):
-				vbgr[0] = vpec
-			ib = where(vbgr[1:dmax]==0.)
-			ca = size(ib[0])
-			while(ca>0):
-				vba[:] = 0.
-				for k in range(0,ca):
-					ia = ib[0][k]+1
-					if(vbgr[ia-1] != 0.):
-						if(vbgr[ia+1] != 0.):
-							vba[ia] = 0.5*(vbgr[ia-1]+vbgr[ia+1])
-						else:
-							vba[ia] = vbgr[ia-1]
-					else:
-						if(vbgr[ia+1] != 0.):
-							vba[ia] = vbgr[ia+1]
-					vbgr[ia] = vba[ia]
-				ib = where(vbgr[1:dmax]==0.)
-				ca = size(ib[0])
-		
-		# Radial velocity
-		# First express rotc at function of radi
-		hna = floor(100.*radi)
-		hnc = hna+1
-		hnb = 100.*radi-hna
-		hnd = 1.-hnb
-		hnc = hnc.astype(int)
-		hna = hna.astype(int)
-		rot_curve = hnb*rotc[hnc]+hnd*rotc[hna]
-		# Uncorrected radial velocity: Equation (5)
-		v_lsr = (r_sun*rot_curve/radi-v_sun)*sin(glon)*cos(glat)
-		#plotFunc(proj_dis,v_lsr)
-		# Extrapolate vbgr
-		if(cos(glon)>0.1):
-			phn = int(round(40.*pmean-5.))
-			vmean = sum( vbgr[phn-5:phn] )/6.
-			vrmean = sum( v_lsr[phn-5:phn] )/6.
-			vbgr[phn+1:759] = vmean-vrmean+v_lsr[phn+1:759]
-		# Merging
-		wradi = where((9-radi)/2 < 0.,0.,(9-radi)/2)
-		vr = v_lsr+(vbgr-v_lsr)*where(wradi>1.,1.,wradi)		
-		# Corrected, effective velocity: Equation (7)
-		vr = movingaverage1D(vr,7)-vpec
-		vr[-3:] = vr[-4]
-		#extrap(vr, proj_dis, yp)
-		#plotFunc(proj_dis,vr)
-		
-		try:
-			i = 0
-			diff=[]
-			if (vlsr<(-50+3*glo_deg)) or (vlsr>25. and glo_deg<0.) or (vlsr>(10.+3*glo_deg) and glo_deg>=0.):
-				radius = 1.;
-			else:
-				for vel in vr:
-					if abs(vel-vlsr) < 10.: # km/s
-						diff.append([abs(vel-vlsr),i])
-						print "1) vlsr = %s, v = %s, r = %s, i = %s"%(vlsr,vel,proj_dis[i],i)
-					i=i+1			
-				radius = proj_dis[min(diff)[1]]
-			return radius # kpc
-		except ValueError:
-			surveyLogger.critical("The rotation curve doesn't contain the mosaic velocity!!")
-			surveyLogger.critical("i) [vmin,vmax] = [%.2f,%.2f], vmsc = %.2f"%(amin(vr),amax(vr),vlsr))
-			sys.exit(0)
 
 #################################################
 # END ROTATION CURVE
+#################################################
+def get_ampHISA(survey,mosaic,r,ivmax,Tmax):#,utilsConf):
+
+	sur = survey.lower()
+	Tcmb = 2.7 # Cosmic Microwave Background temperature (K)
+	C = 1.823e18 # Costant (cm-2)
+	pc2cm = 3.08567758e18 # Conversion factor from pc to cm (cm)
+	poverk = 4000.
+	p = 1.0 # Fraction of HI emission originating behind the HISA cloud
+	fn = 1.0 
+
+	surveyLogger = initLogger(survey+'_'+mosaic+'_getHISA')
+	# Get data files
+	# HI continuum
+	pathc = getPath(surveyLogger,sur+'_hi_continuum')
+	continuum = pathc+survey+'_'+mosaic+'_1420_MHz_I_image.fits'
+	checkForFiles(surveyLogger,[continuum])
+	Tc, headerc = pyfits.getdata(continuum,0,header=True)
+	Tc[isnan(Tc)] = 0.
+	if survey == 'CGPS':
+		Tc = Tc[0,0,:,:]
+	if survey == 'SGPS':
+		Tc = Tc[:,:]
+	# HI unabsorbed
+	pathu = getPath(surveyLogger,sur+'_hisa_dat')
+	unabsorbed = pathu
+	checkForFiles(surveyLogger,[unabsorbed])
+	Tu, headeru = pyfits.getdata(unabsorbed,0,header=True)
+	
+	# Define params
+	amplitude = 0.
+
+	#C = float(utilsConf['c'])
+	#Tcmb = float(utilsConf['tcmb'])
+
+	theta = radians(mosaic.dy) #rad
+	ds = r*tan(theta)*1e3 #pc
+		
+	A1 = pc2cm*poverk #float(utilsConf['pc2cm'])*float(utilsConf['poverk'])
+	A2 = fn*ds/(C*dv) #float(utilsConf['fn'])*ds/(C*dv)
+	A = A1*A2
+		
+	#B = Tc[b,l]+float(utilsConf['p'])*Tu[ivmax,b,l]
+	B = Tc[b,l]+p*Tu[ivmax,b,l]
+	
+	init = [1.,10.]
+	def equations(xx):
+		'''
+		Ts and tau functions - S.J.Gibson et al
+		(The Astrophysical Journal, 540:852-862, 2000)
+		'''
+		tt, T = xx
+		# Equation (6)
+		Tfunc = (T-B)/(T-B-Tmax)
+		if Tfunc<1.:
+			Tfunc = 1.# Tbg # <------ TO JUSTIFY
+		f1 = log(Tfunc)-tt
+		# Equation (9)
+		ttfunc = A/tt	
+		if ttfunc<0.:
+			ttfunc = 0.# <------ TO JUSTIFY
+		f2 = sqrt(ttfunc)-T
+										
+		return array([f1, f2], dtype=float)
+		
+	(tau,Ts),infodict,ier,mesg = fsolve(equations,init,full_output=1)
+	#plotFunc(tau,Ts)
+	TsMin = Tcmb
+	if Ts < TsMin:
+		Ts = TsMin
+		Tfunc = (Ts-B)/(Ts-B-Tmax)
+		tau = log(Tfunc)
+	#TsMax = Tc[b,l]+(Tmax+Tu[ivmax,b,l])+(float(utilsConf['p'])-1.)*Tu[ivmax,b,l]
+	TsMax = Tc[b,l]+(Tmax+Tu[ivmax,b,l])+(p-1.)*Tu[ivmax,b,l]
+	if Ts > TsMax:
+		# For Ts = TsMax, tau --> +oo
+		Ts = TsMax
+		tau = 1e4
+	if tau < 0.:
+		Ts = 0.
+		tau = log(B/(B+Tmax))
+	
+	#print Ts,tau
+	solution = False
+	if ier == 1:
+		solution = True
+		amplitude = tau*Ts
+	if not solution:
+		#print "Could not find a valid solution:"
+		#print mesg
+		amplitude = 0.
+	
+	return amplitude
+#################################################
+# START COMBINE 
+#################################################
+def concatenateMosaics(list,dim,dx):
+	# Concatenate mosaics along the longitude axis
+	index = 0
+	for current, next in zip(list, list[1:]):
+		if index == 0:
+			if dim == '2D':
+				c = concatenate((current.data[:,0:-dx], next.data[:,dx:]), axis=1)
+			if dim == '3D':
+				c = concatenate((current.data[:,:,0:-dx], next.data[:,:,dx:]), axis=2)
+		elif index > 0 and index < len(list):
+			if dim == '2D':
+				c = concatenate((c[:,:-dx], next.data[:,dx:]), axis=1)
+			if dim == '3D':
+				c = concatenate((c[:,:,:-dx], next.data[:,:,dx:]), axis=2)
+		elif index == len(list):
+			if dim == '2D':
+				c = concatenate((c, next.data[:,dx:msc_x]), axis=1)
+			if dim == '3D':
+				c = concatenate((c, next.data[:,:,dx:msc_x]), axis=2)
+		index += 1
+	return c
+
+#################################################
+# END COMBINE 
 #################################################
 
 #################################################
@@ -1208,18 +1158,44 @@ def plotNvsTs(surveyLogger,obs,utilsConf,plot,lon,lat):
 #################################################
 # END PLOTTING FUNCTIONS
 #################################################
-
-
 class FileNotFound: pass
 class CommandNotFound: pass
 
 def getPath(surveyLogger, key="cgps_hi"):
-		
+
+	mode = "DESY"
+	#mode = "HOME"
+
+	if mode == "DESY":
+
+		disk1 = "/afs/ifh.de/group/that"
+		disk2 = "/lustre/fs4/group/that/sf/Surveys"
+
+		data1 = disk1+"/data/Radio/skymaps"
+		result1 = disk1+"/data/HISA"
+
+		workdir = disk1+"/work-sf/survey"
+
+	elif mode == "HOME":
+
+		disk1 = "/Volumes/My Book/DESY"
+		disk2 = disk1+"/analysis/survey/results"
+
+		data1 = disk1+"/data/Radio"
+		result1 = data1+"/hisa"
+
+		workdir = disk1+"/analysis/survey"
+
 	path = False
 	# Rot.Curve
 	if key == 'rotcurve_mpohl':
 		path = True
-		return '/afs/ifh.de/group/that/work-sf/survey/rotcurve/'
+		return workdir+'/rotcurve/'
+
+	# Mosaic list
+	if key == 'list_mosaic':
+		path = True
+		return workdir+'/lstmosaic/'
 	
 	# TODO
 	#
@@ -1251,117 +1227,117 @@ def getPath(surveyLogger, key="cgps_hi"):
 	# Galprop
 	if key=="galprop_hi":
 		path = True
-		return '/afs/ifh.de/group/that/soft/opt/Galprop/FITS/'
+		return disk1+'/soft/opt/Galprop/FITS/'
 	if key=="galprop_co":
 		path = True
-		return '/afs/ifh.de/group/that/soft/opt/Galprop/FITS/'
+		return disk1+'/soft/opt/Galprop/FITS/'
 	
 	if key=="lustre_galprop":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/Galprop/'
+		return disk2+'/Galprop/'
 	if key=="lustre_galprop_hi":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/Galprop/HI/'
+		return disk2+'/Galprop/HI/'
 	if key=="lustre_galprop_hi_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/Galprop/HI/col_den/'
+		return disk2+'/Galprop/HI/col_den/'
 	if key=="lustre_galprop_hisa":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/Galprop/HISA/'
+		return disk2+'/Galprop/HISA/'
 	if key=="lustre_galprop_hisa_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/Galprop/HISA/col_den/'
+		return disk2+'/Galprop/HISA/col_den/'
 	if key=="lustre_galprop_co":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/Galprop/CO/'
+		return disk2+'/Galprop/CO/'
 	if key=="lustre_galprop_co_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/Galprop/CO/col_den/'
+		return disk2+'/Galprop/CO/col_den/'
 
 	# Dame
 	if key=="dame_co":
 		path = True
-		return '/afs/ifh.de/group/that/data/DiffuseEmission/co/'
+		return disk1+'/data/DiffuseEmission/co/'
 	if key=="lustre_dame":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/Dame/'
+		return disk2+'/Dame/'
 	if key=="lustre_dame_co_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/Dame/col_den/'
+		return disk2+'/Dame/col_den/'
 	
 	# LAB
 	if key=="lab_hi":
 		path = True
-		return '/afs/ifh.de/group/that/data/Radio/skymaps/hi/LAB/'
+		return data1+'/hi/LAB/'
 	if key=="lustre_lab":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/LAB/'
+		return disk2+'/LAB/'
 	if key=="lustre_lab_hi_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/LAB/col_den/'
+		return disk2+'/LAB/col_den/'
 
 	# CGPS
 	if key=="cgps_hi":
 		path = True
-		return '/afs/ifh.de/group/that/data/Radio/skymaps/hi/CGPS/'
+		return data1+'/hi/CGPS/'
 	if key=="cgps_hi_continuum":
 		path = True
-		return '/afs/ifh.de/group/that/data/Radio/skymaps/continum/cgps/'
+		return data1+'/continum/cgps/'
 	if key=="cgps_hisa_dat":
 		path = True
-		return '/afs/ifh.de/group/that/data/HISA/cgps/results/'
+		return result1+'/cgps/results/'
 	if key=="cgps_co":
 		path = True
-		return '/afs/ifh.de/group/that/data/Radio/skymaps/co/cgps/'
+		return data1+'/co/cgps/'
 
 	if key=="lustre_cgps":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/CGPS/'
+		return disk2+'/CGPS/'
 	if key=="lustre_cgps_hi":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/CGPS/HI/'
+		return disk2+'/CGPS/HI/'
 	if key=="lustre_cgps_hi_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/CGPS/HI/col_den/'
+		return disk2+'/CGPS/HI/col_den/'
 	if key=="lustre_cgps_hisa":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/CGPS/HISA/'
+		return disk2+'/CGPS/HISA/'
 	if key=="lustre_cgps_hisa_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/CGPS/HISA/col_den/'
+		return disk2+'/CGPS/HISA/col_den/'
 	if key=="lustre_cgps_co":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/CGPS/CO/'
+		return disk2+'/CGPS/CO/'
 	if key=="lustre_cgps_co_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/CGPS/CO/col_den/'
+		return disk2+'/CGPS/CO/col_den/'
 
 	# SGPS
 	if key=="sgps_hi":
 		path = True
-		return '/afs/ifh.de/group/that/data/Radio/skymaps/hi/SGPS/'
+		return data1+'/hi/SGPS/'
 	if key=="sgps_hi_continuum":
 		path = True
-		return '/afs/ifh.de/group/that/data/Radio/skymaps/continum/sgps/'
+		return data1+'/continum/sgps/'
 	if key=="sgps_hisa_dat":
 		path = True
-		return '/afs/ifh.de/group/that/data/HISA/sgps/results/'
+		return result1+'/sgps/results/'
 
 	if key=="lustre_sgps":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/SGPS/'
+		return disk2+'/SGPS/'
 	if key=="lustre_sgps_hi":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/SGPS/HI/'
+		return disk2+'/SGPS/HI/'
 	if key=="lustre_sgps_hi_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/SGPS/HI/col_den/'
+		return disk2+'/SGPS/HI/col_den/'
 	if key=="lustre_sgps_hisa":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/SGPS/HISA/'
+		return disk2+'/SGPS/HISA/'
 	if key=="lustre_sgps_hisa_column_density":
 		path = True
-		return '/lustre/fs4/group/that/sf/Surveys/SGPS/HISA/col_den/'
+		return disk2+'/SGPS/HISA/col_den/'
 		
 	if(not path):
 		surveyLogger.critical("Path '%s' doesn't exist."%key)
