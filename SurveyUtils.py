@@ -34,7 +34,7 @@ import pyfits
 glob_Tb  = 'brightness temperature'
 glob_ITb = 'integrated brightness temperature'
 glob_N   = 'column density'
-glob_ncpu = 10#8
+glob_ncpu = 12#8
 glob_annuli = 'Ackermann2012' # Ackermann2012:Galprop
 #################################################
 #	START GENERAL FUNCTIONS
@@ -869,23 +869,24 @@ def Deconvolution( (T,vec) ):
 				if rotcurve == 'Bissantz2003':
 					veff,dveff,weight_veff = RotCurveBissantz2003(parlist)
 				elif rotcurve == 'Clemens1985':
-					veff2,dveff,weight_veff = RotCurveClemens1985(parlist)
+					veff,dveff,weight_veff = RotCurveClemens1985(parlist)
 				#plotFunc(r_proj,[veff,veff2],['Bissantz 2003','Clemens 1985'],position='lower right')
 				#exit(0)
 				
 				# Line spectrum
 				spec = array(nvel)
 				spec = T[:,b,l]
-				#spec[0] = 0.
-				#spec[nvel-1] = 0.
-				rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
+				spec[0] = 0.
+				spec[nvel-1] = 0.
+				#rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
+				rspec = fftconvolve(spec,lim,mode='same')
 				
 				zero_avg = 0.
 				idx_zero_avg = where(rspec<0)
 				if size(idx_zero_avg) > 0:
 					zero_avg = mean(rspec[idx_zero_avg])
 				#print zero_avg,abs(dv*sum(spec)),abs(dv*sum(spec-zero_avg))
-				#plotFunc(vel,[spec,rspec])
+				#plotFunc(vel,[spec,rspec,rspec2],['spec','rspec','rspec2'])
 				#exit(0)
 				spec = spec-zero_avg		
 				rspec = rspec-zero_avg		
@@ -902,7 +903,6 @@ def Deconvolution( (T,vec) ):
 					vpeak = vel[ivpeak]
 					
 					if species == 'HI' or species == 'HI_unabsorbed':
-						#amp = amp_frac*log(Ts/(Ts-spec[ivpeak]))*Ts
 						amp = amp_frac*log(Ts/(Ts-rspec[ivpeak]))*Ts
 						amp = where(wcb>amp,amp,wcb)
 					elif species == 'CO':			
@@ -990,7 +990,6 @@ def Deconvolution( (T,vec) ):
 						wa[i] = weight_veff[j]*weight_k*weight_z
 					
 					wtot = sum(wa)
-					wamp = 0.
 					wgn = 0.
 					
 					# add intensity line (= sigma_line*amp) to cubemap
@@ -999,6 +998,7 @@ def Deconvolution( (T,vec) ):
 						if(radi[k] < 1.): wgn += wa[i]/wtot
 						wga = wa[i]/wtot
 
+						wamp = 0.
 						if species == 'HI' or species == 'HI_unabsorbed':
 							wamp = wga*amp*sigma_line*C
 						elif species == 'CO':
@@ -1013,7 +1013,6 @@ def Deconvolution( (T,vec) ):
 								cubemap[a,b,l] += wamp
 							if (radi[k] > 50.):
 								print "Distance > 50. kpc! (%.2f)"%radi[k]
-						wamp = 0.
 					
 					wgo = 1.-wgn
 					wco_previous = wco
@@ -1021,7 +1020,8 @@ def Deconvolution( (T,vec) ):
 					beforespec[:] = spec[:]
 					
 					spec[ivlow:ivhigh] -= (wgo*amp*line[iv1:iv2]+wgn*amp*line_inner[iv1:iv2]*sigma_line/sigma_line_inner)
-					rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
+					#rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
+					rspec = fftconvolve(spec,lim,mode='same')
 					#print amp
 					#print 'spec[%i:%i] = %s'%(vel[ivlow],vel[ivhigh],spec[ivlow:ivhigh])
 					#print 'line[%i:%i] = %s'%(iv1,iv2,line[iv1:iv2])

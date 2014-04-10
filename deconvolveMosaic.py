@@ -147,7 +147,8 @@ class deconvolveMosaic(object):
 			newheader['object'] = ("Mosaic "+self.mosaic,self.survey+" Mosaic")
 		else:
 			newheader['object'] = ("Mosaic %s (%s/%s)"%(self.mosaic,self.nmsc,self.totmsc),"%s Mosaic (n/tot)"%self.survey)
-		
+		newheader.add_history('Rotation curve: %s'%rotcurve)
+
 		# Output file
 		results = pyfits.PrimaryHDU(cubemap, newheader)
 		if scale_data:

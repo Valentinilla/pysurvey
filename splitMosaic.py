@@ -31,17 +31,30 @@ class splitMosaic(object):
 		self.logger.info("Open file and get data...")
 				
 		# Get HI emission data
+		split_axis = 'lat' #lon
+		
 		naxis = 2
+		coord = 0
+		if split_axis == 'lat': 
+			naxis = 2
+			coord = mosaic.yarray
+			hcrval = 'crval2'
+			hcrpix = 'crpix2'
+		 
+		if split_axis == 'lon': 
+			naxis = 3		
+			coord = mosaic.xarray
+			hcrval = 'crval1'
+			hcrpix = 'crpix1'
+			
 		if self.survey == 'LAB':
 			Tb = mosaic.observation[:,:,:]
 			naxis = 1
 		else:
 			Tb = mosaic.observation[:,:,:,:]
-			naxis = 2
-		lat = mosaic.yarray
 		
 		alist = array_split(Tb, self.ntot, axis=naxis)
-		ind_lat = 0
+		ind = 0
 		
 		for z in xrange(0,self.ntot):
 
@@ -49,12 +62,14 @@ class splitMosaic(object):
 			checkForFiles(self.logger,[file],existence=True)
 			
 			# Store results
-			crpix_lat = (Tb.shape[naxis]/self.ntot)/2
+			crpix = (Tb.shape[naxis]/self.ntot)/2
 			i = z+(z+1)
-			ind_lat = crpix_lat*i
-			#print i, ind_lat	
-			mosaic.keyword['crval2'] = lat[ind_lat-1]
-			mosaic.keyword['crpix2'] = crpix_lat
+			ind = crpix*i
+			#print i, ind	
+			#mosaic.keyword['crval2'] = lat[ind-1]
+			#mosaic.keyword['crpix2'] = crpix
+			mosaic.keyword[hcrval] = coord[ind-1]
+			mosaic.keyword[hcrpix] = crpix
 			
 			#crpix_vel = (Tb.shape[1]/self.ntot)/2
 			#i = z+(z+1)
