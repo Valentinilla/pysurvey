@@ -966,6 +966,109 @@ def nearest_neighbors(xarray,yarray):
 	# dist is the matrix of distances from one coordinate to any other
 	return dist
 
+
+def remove_region(cubemap,x1,x2,y1,y2,z1,z2,samples='l:r:u:d'):
+	'''
+	Needed to remove M31 from the LAB cubemap.
+	It can also be used to remove different small regions.
+	'''
+	for z in xrange(z1,z2):
+		
+		source = cubemap[z,:,:]
+		test = source[y1:y2,x1:x2]
+		
+		lx = fabs(x2-x1)-1
+		ly = fabs(y2-y1)-1
+		
+		x31 = x1-lx
+		x32 = x2-lx
+		x41 = x1+lx
+		x42 = x2+lx
+				
+		y11 = y1-ly
+		y12 = y2-ly
+		y21 = y1+ly
+		y22 = y2+ly
+		
+		# correct if outside the boundaries
+		x31,x32 = check_boundaries(x31,x32,cubemap.shape[2])
+		x41,x42 = check_boundaries(x41,x42,cubemap.shape[2])
+		
+		y11,y12 = check_boundaries(y11,y12,cubemap.shape[1])
+		y21,y22 = check_boundaries(y21,y22,cubemap.shape[1])
+		
+		# Test-regions in the line-data around the source
+		# match two arrays if zonei is smaller than source
+		# weights depending on how many non-zero elements are in a region
+		if samples.find('d') >= 0:
+			zone1 = source[y11:y12,x1:x2]
+			zone1 = match_arrays(test,zone1)
+			w1 = float(len(where(zone1 != 0.)[0]))/(zone1.shape[0]*zone1.shape[1])
+		else:   zone1, w1 = 0.,0.
+		if samples.find('u') >= 0:
+			zone2 = source[y21:y22,x1:x2]
+			zone2 = match_arrays(test,zone2)
+			w2 = float(len(where(zone2 != 0.)[0]))/(zone2.shape[0]*zone2.shape[1])
+		else:   zone2, w2 = 0.,0.
+		if samples.find('l') >= 0:
+			zone3 = source[y1:y2,x31:x32]
+			zone3 = match_arrays(test,zone3)
+			w3 = float(len(where(zone3 != 0.)[0]))/(zone3.shape[0]*zone3.shape[1])
+		else:   zone3, w3 = 0.,0.
+		if samples.find('r') >= 0:
+			zone4 = source[y1:y2,x41:x42]
+			zone4 = match_arrays(test,zone4)
+			w4 = float(len(where(zone4 != 0.)[0]))/(zone4.shape[0]*zone4.shape[1])
+		else:   zone4, w4 = 0.,0.
+		
+		cubemap[z,y1:y2,x1:x2] = (w1*zone1+w2*zone2+w3*zone3+w4*zone4)/(w1+w2+w3+w4)
+		
+	return cubemap[z1:z2,y1:y2,x1:x2]
+
+def get_intervalEdges(xarray,lowerEdge,upperEdge):
+	'''
+	xarray = [180,-180]
+	'''
+	if lowerEdge > 180.: lowerEdge = lowerEdge-360
+	if upperEdge > 180.: upperEdge = upperEdge-360
+	subarray1 = where(xarray <= upperEdge)
+	subarray2 = where(xarray >= lowerEdge)
+	subarray = [x for x in subarray1[0] if x in subarray2[0]]
+	#print 'Longitude:',subarray,xarray[subarray]
+	#print min(subarray),max(subarray)
+
+	return min(subarray),max(subarray),subarray # x1:x2
+
+def moment_mask2(T,dx,dv):
+	'''
+	LAB Large/Small Magellanic Cloud correction: based on Moment Mask method (T.M.Dame)
+	'''
+	# Degrading the resolution spatially and in velocity by a factor of 2
+	fwhm_s = fabs(dx)*2 #px
+	fwhm_v = fabs(dv)*2
+	
+	sig_s = fwhm_s/sqrt(8*log(2))
+	sig_v = fwhm_v/sqrt(8*log(2))
+	Tsmooth = ndimage.gaussian_filter(T,sigma=(sig_v,sig_s,sig_s),order=(0,0,0))
+	
+	# Calculate the rms for smoothed data
+	rms_ts = 0.02 # LAB
+	
+	# Set the clipping level equal 5 times the rms noise in Tsmooth
+	Tclipping = 5*rms_ts
+	
+	# Generate a masking cube initially filled with zeros with the same dimensions as Tb
+	Mask = zeros(Tsmooth.shape)
+	
+	# Unmask the pixel with a value < Tclipping
+	index = where(Tsmooth<Tclipping)
+	Mask[index] = 1
+	
+	# Calculate the moment-masked cube
+	T[:,:,:] = Mask*T
+					
+	return T
+
 #################################################
 #	END MAP CORRECTIONS
 #################################################
@@ -1152,16 +1255,16 @@ def RotCurveBissantz2003(parlist):
 	pmean = r_sun*cos(glon)
 	if(cos(glon) > 0.1):
 		i = int(round(40.*pmean-5.))
-		#vmean = mean(vbgr[i-5:i+1])
-		vmean = vbgr[i]
-		#vrmean = mean(v_lsr[i-5:i+1])
-		vrmean = v_lsr[i]
-		vbgr[i:] = v_lsr[i:]+(vmean-vrmean)
-		#vbgr[i:] = v_lsr[i:]+(vbgr[i:]-v_lsr[i:])
+		vmean = mean(vbgr[i-5:i+1])
+		#vmean = vbgr[i]
+		vrmean = mean(v_lsr[i-5:i+1])
+		#vrmean = v_lsr[i]
+		#vbgr[i:] = v_lsr[i:]+(vmean-vrmean)
+		vbgr[i+1:559] = v_lsr[i+1:559]+(vmean-vrmean)
 	
 	# Merging - transition from inner and outer Galaxy
 	Rt = 9. # kpc
-	wradi = where(radi > Rt,0.,(Rt-radi)/2.)
+	wradi = where(radi > Rt, 0., (Rt-radi)/2.)
 	veff = v_lsr+(vbgr-v_lsr)*where(wradi>1.,1.,wradi)		
 	# Corrected, effective velocity: Equation (7)
 	fwhm = 3
@@ -1357,14 +1460,14 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 	if rotcurve == 'Bissantz2003':
 		r_sun = 8.	#kpc
 		v_sun = 210. 	#km s-1
-		gmax = 165. 	#+165, -165(=345)
+		gmax = 165. 	#+165, -165(=345) deg
 		sol = 8 	#kinematically best-fitting location
 	elif rotcurve == 'Clemens1985':
 		r_sun = 8.5	#kpc
 		v_sun = 220.	#km s-1
-		gmax = 180. 	#+180, -180(=360)
+		gmax = 180. 	#+180, -180(=360) deg
 		sol = 8		#kinematically best-fitting location
-	gmax = 1e3
+	#gmax = 1e3
 	
 	z_sun = 0.015		#kpc
 	gal_radius = 20. 	#kpc
@@ -1375,7 +1478,7 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 	# Cuts
 	v_offset = 10.		#velocity offset [10 km/s]
 	lon_inner = 20.		#inner Galaxy longitude (|l|<=20) [deg]
-	residual_line = 1.	#threshold of residual line spectrum [K km/s]
+	residual_line = 0.5	#threshold of residual line spectrum [K km/s]
 	if species == 'HISA':
 		residual_line = 0.01
 	amp_frac = 0.2		#percentage of the peak value [x100 %]
@@ -1391,14 +1494,18 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 		#print "[%i/%i] longitude: %.3f deg"%(l,nlon,lon[l])
 		if (abs(glo_deg) <= gmax):
 			glon = radians(glo_deg)
-			dismin = floor(r_sun*abs(cos(glon))/dbin)
-			radmin = floor(r_sun*abs(sin(glon))/dbin)
-			r0 = 12+radmin
-			r1 = dismin-r0
-			r2 = dismin+r0
+			dismin = floor(r_sun*fabs(cos(glon))/dbin)
+			radmin = floor(r_sun*fabs(sin(glon))/dbin)
+			#r0 = 12+radmin
+			#r1 = dismin-r0
+			#r2 = dismin+r0
+			r0 = radmin
+			#r1 = r0-4
+			#r2 = r0+4
 			#print glon
-			#print "px = ",dismin,"py = ",radmin
+			#print "px =",dismin,"py =",radmin
 			#print r0,r1,r2
+			#print r0*dbin,r1*dbin,r2*dbin
 			#exit(0)
 			for b in xrange(nlat):
 				#print "  %i) latitude: %.3f"%(b,lat[b])
@@ -1424,16 +1531,17 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 					rspec = spec
 				else:
 					rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
-					#rspec = fftconvolve(spec,lim,mode='same')
-				
-				zero_avg = 0.
-				idx_zero_avg = where(rspec<0)
-				
-				if size(idx_zero_avg[0]) > 0:
-					zero_avg = mean(rspec[idx_zero_avg])
-				
-				spec = spec-zero_avg		
-				rspec = rspec-zero_avg
+			
+				# Find the zero-point of the spectrum
+				if 1:
+					zero_avg = 0.
+					idx_zero_avg = where(rspec<0)
+					
+					if size(idx_zero_avg[0]) > 0:
+						zero_avg = mean(rspec[idx_zero_avg])
+					
+					spec = spec-zero_avg		
+					rspec = rspec-zero_avg
 				
 				# Define intervals and heights: Equations (4)   
 				z = z_sun+true_dis*sin(glat)
@@ -1470,10 +1578,10 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 					ivlow = ivpeak-ivzero
 					ivhigh = ivpeak+ivzero+1
 					
-					const = 1#sqrt(2.*pi)/2.
-					if(ivlow >= 0):
+					const = 1#sqrt(2.*pi)
+					if ivlow >= 0:
 						iv1 = 0
-						if(ivhigh < nvel):
+						if ivhigh < nvel:
 							iv2 = size(iv_vec)
 							sigma_line = sigma_gas*sqrt(2.*pi)
 							sigma_line_inner = sigma_gas_inner*sqrt(2.*pi)
@@ -1488,10 +1596,6 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 						ivlow = 0
 						sigma_line = fabs(dv*sum(line[iv1:iv2]))*const
 						sigma_line_inner = fabs(dv*sum(line_inner[iv1:iv2]))*const
-
-					#print sigma_gas,sigma,sigma_line
-					#plotFunc(vel[iv1:iv2],[line])
-					#exit(0)
 					
 					# Find a match between gas velocity and rotation curve
 					ivgood = where((vpeak >= veff) & (vpeak <= (veff+dveff)))
@@ -1500,26 +1604,56 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 					#linevpeak = ones(veff.shape)*vpeak
 					#plotFunc(r_proj[0:30],[veff[0:30],veff[0:30]+dveff[0:30],linevpeak[0:30]])
 					#exit(0)
-						
+					
 					# Standard selection of locations
 					# -------------------------------
 					# Gas with forbidden velocity is placed in distance bins with the best matching velocity
-					# except toward the inner Galaxy (abs(l)<20deg) where for a velocity offset of more than
+					# except toward the inner Galaxy (|l| < 20 deg) where for a velocity offset of more than
 					# 10 km/s to the nearest allowed velocity we accept only distance bins in the GC region.
+					#delta_v_list = fabs(veff-vpeak)
+					#if((amin(delta_v_list) > v_offset) and (fabs(glo_deg) < lon_inner)):
+					#	igalactic_rad = r1+argsort(delta_v_list[r1:r2+1])
+					
 					delta_v_list = fabs(veff-vpeak)
-					if((min(delta_v_list) > v_offset) and (fabs(glo_deg) < lon_inner)):
-						igalactic_rad = argsort(delta_v_list[r1:r2+1])+r1
+					if((amin(delta_v_list) > v_offset)):# and (fabs(glo_deg) < lon_inner)):
+						#igalactic_rad = r1+argsort(delta_v_list[r1:r2+1])
+						#igalactic_rad = r0+argsort(delta_v_list[r1:r2+1])
+						#if r1 > r2: r1 = r2-10
+						#if r1 < 0.: r1 = 0
+						if r0 < 4: r0 = 4
+						#igalactic_rad = argsort(delta_v_list[r0-4:r0+5])#r2+10])
+						igalactic_rad = arange(r0-4,r0+5)
+						#velo1 = delta_v_list[r0-4:r0+5]
+						#velo2 = delta_v_list[index2[0]:index2[-1]+1]
+
+						#print igalactic_rad
+						#print index2
+						#print velo1
+						#print velo2
+						#exit(0)
+						#if len(igalactic_rad) == 0:
+						#	print r0,r1,r2
 					else:
 						igalactic_rad = argsort(delta_v_list)
 
+				
+					#delta_v_list = veff-vpeak
+					#cnt_delta = size(where(delta_v_list<0)[0])
+					
 					#veff_sign = veff/fabs(veff)
 					#vpeak_sign = vpeak/fabs(vpeak)
 					#diff_sign = where(veff_sign != vpeak_sign)
 					#cnt_diff = size(diff_sign[0])
-					#if cnt_diff == 0:
+
+					#if cnt_diff > 0:
+						#print 'here2'
+						#print veff_sign,vpeak_sign
 					#	ir_sun = floor(r_sun/dbin)
 					#	igalactic_rad = argsort(delta_v_list[ir_sun-4:ir_sun+4])
-					
+					#elif cnt_delta > 0:
+					#	igalactic_rad = argsort(delta_v_list[])					
+
+
 					# The line signal is distributed among n=sol solutions with weights
 					if(cnt_ivgood == 0):
 						roots = sol
@@ -1562,11 +1696,6 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 						
 					wtot = sum(wa)
 					
-					amp = 0.
-					#if species == 'HI' or species == 'HI_unabsorbed':
-					#	if rspec[ivpeak] > Ts-5: rspec[ivpeak] = Ts-5
-					#	amp = amp_frac*log((Ts-Tcmb)/(Ts-Tcmb-rspec[ivpeak]))*Ts
-					#elif species == 'CO':
 					amp = amp_frac*rspec[ivpeak]
 					amp = where(wcb>amp,amp,wcb)
 					
@@ -1580,28 +1709,19 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 						wga = wa[i]/wtot
 						
 						wamp = 0.
+						deltaV = sigma#(sigma/sqrt(2*pi))*sqrt(8*log(2))# sigma*1.2
 						if species == 'HI' or species == 'HI_unabsorbed':
-							if rspec[ivpeak] > Ts-5: rspec[ivpeak] = Ts-5
-							NHI = log((Ts-Tcmb)/(Ts-Tcmb-rspec[ivpeak]))*Ts*sigma*sqrt(8*log(2))*C/2.
-							wamp = wga*amp_frac*NHI
+							if amp > Ts-5: amp = Ts-5
+							NHI = log((Ts-Tcmb)/(Ts-Tcmb-amp))*Ts*deltaV*C
+							wamp = wga*NHI
 							if fabs(z[j]) > 1.: radi[j] = r_sun
 						elif species == 'HISA':
 							Tc = Tcont[b,l]
 							Tu = Tunab[ivpeak,b,l]
-							NHISA = get_ampHISA(rspec[ivpeak],Tc,Tu,dy,dv,r_proj[j],sigma,vec[8])*sigma*sqrt(8*log(2))*C/2.
+							NHISA = get_ampHISA(rspec[ivpeak],Tc,Tu,dy,dv,r_proj[j],sigma,vec[8])*deltaV*C
 							if NHISA == None: break
 							wamp =  wga*amp_frac*NHISA
 							if fabs(z[j]) > 1.: radi[j] = r_sun
-							#amp = where(wcb>amp,amp,wcb)
-						
-						#wamp = 0.
-						#if species == 'HI' or species == 'HI_unabsorbed' or species == 'HISA':
-							#wamp = wga*amp*sigma*sqrt(8*log(2))*C/sqrt(2*pi)
-							#wamp = wga*amp*sigma*sqrt(8*log(2))*C/2.
-							#wamp = wga*amp*sigma*1.2*C # <--- it works but why 1.2?
-							#wamp = wga*amp*sigma*C
-							#if fabs(z[j]) > 1.: radi[j] = r_sun
-							#print "wamp = %.2e"%wamp
 						elif species == 'CO':
 							wamp = wga*amp*sigma
 							if fabs(z[j]) > 0.2: radi[j] = r_sun
@@ -1616,13 +1736,12 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 					w1 = 1.-w2
 					line1 = line[iv1:iv2]/sigma_line
 					line2 = line_inner[iv1:iv2]/sigma_line_inner
-					spec[ivlow:ivhigh] -= (amp_frac*rspec[ivpeak])*(w1*line1+w2*line2)*sigma_line
+					spec[ivlow:ivhigh] -= (w1*line1+w2*line2)*amp*sigma_line
 
 					if species == 'HISA':
 						rspec = spec
 					else:
 						rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
-						#rspec = fftconvolve(spec,lim,mode='same')
 					
 					wco_previous = wco
 					wco = fabs(dv*sum(spec))
@@ -1649,10 +1768,10 @@ def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 				#densi(0:378,gl,gb)=densi(0:378,gl,gb)*(1.+zcor/znorm)
 
 				#if fabs(lat[b]) < 20.:
-				#	pa = sum(cubemap[:,b,l])
+				#	pa = sum(cubemap[-1,b,l])
 				#	pb = sum(cubemap[:-1,b,l])
-				#	cubemap[-10,b,l] = 0.
-				#	cubemap[:,b,l] *= (1.+pa/pb)
+				#	cubemap[-1,b,l] = 0.
+				#	cubemap[:-1,b,l] *= (1.+pa/pb)
 				
 				#print cnt1,wco
 				#plotFunc(vel,[spec,rspec],['observed','gaussian filter'], position='upper right')
@@ -2957,6 +3076,13 @@ def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc,mypath)
 			elif datatype == 'new': #glob_Tb:
 				path = getPath(surveyLogger, key='lustre_lab_hi')
 				flag = species+'_line_image'
+			elif datatype == 'clean':
+				if not mosaic == 'TOT':
+					surveyLogger.warning("Only mosaic TOT has datatype = clean,")
+					surveyLogger.warning("i.e. without M31,SMC, and LMC.")
+					sys.exit(0)
+				path = getPath(surveyLogger, key='lustre_lab_hi')
+				flag = species+'_line_image_clean'
 			elif datatype == '2D_col_density':
 				path = getPath(surveyLogger, key='lustre_lab_hi_column_density')
 				flag = species+'_column_density'
