@@ -34,7 +34,7 @@ import pyfits
 glob_Tb  = 'brightness temperature'
 glob_ITb = 'integrated brightness temperature'
 glob_N   = 'column density'
-glob_ncpu = 14
+glob_ncpu = 1
 glob_annuli = 'Galprop' # Ackermann2012:Galprop
 #################################################
 #	START GENERAL FUNCTIONS
@@ -220,6 +220,12 @@ def get_nth_maxvalue(a, nth):
 	c = res_sort[-nth:]
 	return c[0]
 
+def get_nth_minvalue(a, nth):
+	b = a.flatten()
+	res_sort = sort(b)
+	c = res_sort[nth:]
+	return c[0]
+
 def getSign(number, string=False):
 	if string:
 		Nsign = int(number/fabs(number))
@@ -319,6 +325,176 @@ def getRMS(surveyLogger,T,zmax):
 	surveyLogger.info("RMS = %s"%rms)
 	return rms
 
+# HI correction
+def correct_continuum2( (T,vec) ):
+	'''
+	HI correction: remove continuum subtraction artifacts
+	'''
+
+	nz = T.shape[0]
+	ny = T.shape[1]
+	nx = T.shape[2]
+
+	glon = vec[0]#xarray
+	glat = vec[1]#yarray
+	vel = vec[2]#zarray
+	dv = vec[3]
+	mosaic = vec[4]
+	
+	if mosaic == 'G258.0':
+		# Region 1a		
+		x11a,x12a = 609,624
+		y11a,y12a = 180,195
+		z11a,z12a = 136,147
+		# Region 1b
+		x11b,x12b = 611,621
+		y11b,y12b = 182,192
+		z11b,z12b = 152,173
+		# Region 1c
+		x11c,x12c = 612,620
+		y11c,y12c = 183,191
+		z11c,z12c = 195,201
+		# Region 2a
+		x21a,x22a = 777,795
+		y21a,y22a = 141,159
+		z21a,z22a = 135,166
+		# Region 2b
+		x21b,x22b = 777,795
+		y21b,y22b = 141,159
+		z21b,z22b = 168,234
+
+		T[z11a:z12a,y11a:y12a,x11a:x12a] = patching(T,x11a,x12a,y11a,y12a,z11a,z12a,location='right')
+		T[z11b:z12b,y11b:y12b,x11b:x12b] = patching(T,x11b,x12b,y11b,y12b,z11b,z12b,location='right')
+		T[z11c:z12c,y11c:y12c,x11c:x12c] = patching(T,x11c,x12c,y11c,y12c,z11c,z12c,location='right')
+		T[z21a:z22a,y21a:y22a,x21a:x22a] = patching(T,x21a,x22a,y21a,y22a,z21a,z22a)
+		T[z21b:z22b,y21b:y22b,x21b:x22b] = patching(T,x21b,x22b,y21b,y22b,z21b,z22b)
+		
+	if mosaic == 'G268.0':
+		# Region 1a
+		x11a,x12a = 428,548
+		y11a,y12a = 1,95
+		z11a,z12a = 100,174
+		# Region 1b
+		x11b,x12b = 474,505
+		y11b,y12b = 20,52
+		z11b,z12b = 174,192
+		# Region 2
+		x21,x22 = 360,400
+		y21,y22 = 10,50
+		z21,z22 = 160,180
+		
+		T[z11a:z12a,y11a:y12a,x11a:x12a] = patching(T,x11a,x12a,y11a,y12a,z11a,z12a,location='right')
+		T[z11b:z12b,y11b:y12b,x11b:x12b] = patching(T,x11b,x12b,y11b,y12b,z11b,z12b,location='right')
+		T[z21:z22,y21:y22,x21:x22] = patching(T,x21,x22,y21,y22,z21,z22)
+
+	if mosaic == 'G278.0':
+		# Region 1
+		x11,x12 = 110,140
+		y11,y12 = 10,40
+		z11,z12 = 98,151
+		# Region 2a
+		x21a,x22a = 835,850
+		y21a,y22a = 20,35
+		z21a,z22a = 107,115
+		# Region 2b
+		x21b,x22b = 819,872
+		y21b,y22b = 1,55
+		z21b,z22b = 115,132
+		# Region 2c
+		x21c,x22c = 838,849
+		y21c,y22c = 24,30
+		z21c,z22c = 132,135
+		# Region 2d
+		x21d,x22d = 827,864
+		y21d,y22d = 10,44
+		z21d,z22d = 138,150
+		# Region 2e
+		x21e,x22e = 815,880
+		y21e,y22e = 2,68
+		z21e,z22e = 150,171
+		# Region 2f
+		x21f,x22f = 827,864
+		y21f,y22f = 10,44
+		z21f,z22f = 171,177
+
+		T[z11:z12,y11:y12,x11:x12] = patching(T,x11,x12,y11,y12,z11,z12,location='right')
+		T[z21a:z22a,y21a:y22a,x21a:x22a] = patching(T,x21a,x22a,y21a,y22a,z21a,z22a)
+		T[z21b:z22b,y21b:y22b,x21b:x22b] = patching(T,x21b,x22b,y21b,y22b,z21b,z22b)
+		T[z21c:z22c,y21c:y22c,x21c:x22c] = patching(T,x21c,x22c,y21c,y22c,z21c,z22c)
+		T[z21d:z22d,y21d:y22d,x21d:x22d] = patching(T,x21d,x22d,y21d,y22d,z21d,z22d)
+		T[z21e:z22e,y21e:y22e,x21e:x22e] = patching(T,x21e,x22e,y21e,y22e,z21e,z22e)
+		T[z21f:z22f,y21f:y22f,x21f:x22f] = patching(T,x21f,x22f,y21f,y22f,z21f,z22f)
+	
+	#if mosaic == 'G288.0':
+		
+	return T
+
+	
+def patching(ar,x1,x2,y1,y2,z1,z2,location='up'):
+	'''
+	HI correction: remove continuum subtraction artifacts
+	'''
+	nx = ar.shape[2]
+	ny = ar.shape[1]
+	nz = ar.shape[0]
+		
+	region = ar[z1:z2,y1:y2,x1:x2]
+	sample = array(region)#.shape)
+	delx = int(fabs(x2-x1))
+	dely = int(fabs(y2-y1))
+	if location == 'up':
+		sample = ar[z1:z2,y2:y2+dely,x1:x2]
+		#sample  = sample[:,::-1,:]
+	elif location == 'down':
+		sample = ar[z1:z2,y1-dely:y1,x1:x2]
+	elif location == 'left':
+		sample = ar[z1:z2,y1:y2,x1-delx:x1]
+	elif location == 'right':
+		sample = ar[z1:z2,y1:y2,x2:x2+delx]
+
+	delta = int(fabs(z1-z2))
+	dx,dy = 1,1
+	p1 = zeros((delta))
+	p2 = zeros((delta))
+	p3 = zeros((delta))
+	for z in xrange(delta):
+		p1[z] = mean(ar[z1+z,y2:y2+dy,x1:x2])
+		p2[z] = mean(ar[z1+z,y1:y2,x1-dx:x2])
+		p3[z] = mean(ar[z1+z,y1:y2,x2:x2+dx])
+		
+	x0 = region.shape[-1]/2.
+	y0 = region.shape[-2]/2.
+	radius = max(x0,y0)
+	output = array(region)
+
+	wmaxp = zeros((delta))
+	for z in xrange(delta):
+		wmaxp[z] = max(p1[z],p1[z],p3[z])
+	wmax = amax(wmaxp)
+		
+	#weights = (p1[:]+p2[:]+p3[:])/3.
+	for x in xrange(0,region.shape[-1]):
+		for y in xrange(0,region.shape[-2]):
+			distance = sqrt((x-x0)**2 + (y-y0)**2)
+			if distance <= radius:
+				spec = sample[:,y,x]
+				maxval = amax(spec)
+				output[:,y,x] = (spec/maxval)*wmax
+				for z in xrange(int(z2-z1)):
+					if amax(output[z,y,x]) > wmaxp[z]:
+						s = random.normal(wmaxp[z],10,100)
+						#plotFunc(arange(100),[s])
+						#exit(0)
+						output[z,y,x] = s[50]
+	for z in xrange(delta):
+		output[z,:,:] = ndimage.gaussian_filter(output[z,:,:],sigma=(1,1),order=(0,0))
+	for x in xrange(0,region.shape[-1]):
+		for y in xrange(0,region.shape[-2]):
+			distance = sqrt((x-x0)**2 + (y-y0)**2)
+			if distance >= radius:
+				output[:,y,x] = region[:,y,x]
+
+	return output
 
 # HI correction
 def correct_continuum( (T,data) ):
@@ -335,35 +511,37 @@ def correct_continuum( (T,data) ):
 	from sklearn.mixture import GMM
 	classif = GMM(n_components=2)
 	classif.fit(data.reshape((data.size, 1)))
-	#print classif.means_
 	threshold = mean(classif.means_)
-	#print threshold
 	
-	mask = data >  threshold
+	mask = data > threshold
 	filled = ndimage.morphology.binary_fill_holes(mask)
 	coded_regions, num_regions = ndimage.label(filled)
-	#del filled
+	
 	data_slices = ndimage.find_objects(coded_regions)
 	region = [coord for coord in data_slices]
 	del data_slices
+	#print classif.means_
+	#print threshold
 	#print num_regions
-		
+	#exit(0)
+	
 	for z in xrange(nz):
-		
-		slice = T[z,:,:]		
+
+		slice = T[z,:,:]
+
 		# loop over each region of the continuum
 		for x in region:
 			a,b = (max(x[0].start-1,0),min(x[0].stop+1,ny-1))
 			c,d = (max(x[1].start-1,0),min(x[1].stop+1,nx-1))
 			
-			# Source in the continuum data file
+			# Source in the continuum-data
 			source = data[a:b,c:d]
 		
 			# Do not consider structure larger than 80 px
 			if max(source.shape[0],source.shape[1]) > 80:
 				continue
 			
-			# Mean value of the line data file at the source location 
+			# Mean value of the line-data at the source location 
 			test = mean(slice[a:b,c:d])
 			
 			lx = fabs(c-d)-1
@@ -386,7 +564,7 @@ def correct_continuum( (T,data) ):
 			y11,y12 = check_boundaries(y11,y12,ny)
 			y21,y22 = check_boundaries(y21,y22,ny)
 			
-			# Test-regions in the line data file around the source
+			# Test-regions in the line-data around the source
 			# match two arrays if zonei is smaller than source
 			zone1 = slice[y11:y12,c:d]
 			zone2 = slice[y21:y22,c:d]
@@ -407,9 +585,8 @@ def correct_continuum( (T,data) ):
 			w3 = float(len(where(zone3 != 0.)[0]))/(zone3.shape[0]*zone3.shape[1])
 			w4 = float(len(where(zone4 != 0.)[0]))/(zone4.shape[0]*zone4.shape[1])
 
-			if test > (2.*max_val) or test < (2.*min_val):
+			if test > (max_val) or test < (min_val):
 				T[z,a:b,c:d] = (w1*zone1+w2*zone2+w3*zone3+w4*zone4)/(w1+w2+w3+w4)
-
 	return T
 
 # HI corrections
@@ -1288,16 +1465,43 @@ def rms_estimation2D(signal,noise,wsize):
 
 	return sigma
 
-def spatialSearch( (T,vec) ):
+	
+	species = vec[0]
+	vel = vec[2]
+	dv = vec[3]
+	path = vec[4]
+	C = vec[5]
+	Ts = vec[6]
+	rmin = vec[7]
+	rmax = vec[8]
+	rotcurve = vec[9]
+	maxis = vec[10]
+	
+	annuli = len(rmin)
 
+	nlon = T.shape[2]
+	nlat = T.shape[1]
+	nvel = T.shape[0]
+
+	if maxis == 1:
+		lon = vec[1]
+		lat = coord
+	elif maxis == 2:
+		lon = coord
+		lat = vec[1]
+
+
+def spatialSearch( (T,vec) ):
+	#[obs.zmin,obs.zmax,obs.dx,spatialConf,maxis]
 	kmin = vec[0]
 	kmax = vec[1]
 	dx = vec[2] # deg
-	nx = vec[3]
-	ny = vec[4]
-	nz = vec[5]
-	params = vec[6]
-
+	params = vec[3]
+		
+	nx = T.shape[2]
+	ny = T.shape[1]
+	nz = T.shape[0]
+	
 	N_SPATIAL         = int(params['n_spatial'])
 	MAX_LOOPS         = int(params['max_loops'])
 	HIGH              = int(params['high'])
@@ -1338,7 +1542,7 @@ def spatialSearch( (T,vec) ):
 	# Spatial search algorithm
 	for k in xrange(kmin,kmax):
 
-		print "k = %s"%k
+		#print "k = %s"%k
 			
 		# O(i,j) is the observed spectrum
 		observed = T[k,:,:]
@@ -1506,16 +1710,17 @@ def dipFilter(spectrum,x0,dx):
 	return Frac
 
 def spectralSearch( (T,vec) ):
-
+	#[obs.zmin,obs.zmax,obs.dx,dv,vel,spectralConf]
 	kmin = vec[0]
 	kmax = vec[1]
-	dx = vec[2]
-	dz = vec[3]/1000.
-	nx = vec[4]
-	ny = vec[5]
-	nz = vec[6]
-	zarray = vec[7]/1000.
-	params = vec[8]
+	dx = vec[2] # deg
+	dz = vec[3]
+	zarray = vec[4]
+	params = vec[5]
+		
+	nx = T.shape[2]
+	ny = T.shape[1]
+	nz = T.shape[0]
 
 	N_SPECTRAL        = int(params['n_spectral'])
 	MAX_LOOPS         = int(params['max_loops'])
@@ -1567,7 +1772,7 @@ def spectralSearch( (T,vec) ):
 	#print a,b,c,d #a=101, b=102, c=186, d=187
 	
 	for i in xrange(7,nx-9):#7
-		for j in xrange(70,ny-9):
+		for j in xrange(7,ny-9):
 			
 			# O(k) is the observed spectrum
 			observed = T[:,j,i]
@@ -1638,17 +1843,15 @@ def spectralSearch( (T,vec) ):
 			
 			# Build consecutive HISA candidates into segments
 			#while(counter < cnt1):
-			print suspected_hisa_index
-			for iseg,ires in enumerate(suspected_hisa_index[0]):
-				segments.append(residual[ires])
-				 
-				print iseg,ires
-				#print i,segments,residual[suspected_hisa_index[0][counter]]
-			exit(0)
+			#print suspected_hisa_index
+			#for iseg,ires in enumerate(suspected_hisa_index[0]):
+			#	segments.append(residual[ires]) 
+				#print iseg,ires
+				
 			while(counter < cnt1):
 				segments = [residual[suspected_hisa_index[0][counter]]]
 				ikmin = [suspected_hisa_index[0][counter],0]
-				print "> counter %i"%counter,ikmin,segments
+				#print "> counter %i"%counter,ikmin,segments
 				
 				count_start = counter
 				counter += 1
@@ -1661,7 +1864,7 @@ def spectralSearch( (T,vec) ):
 				#exit(0)
 				# ikmin[0][0] = index in residual, ikmin[0][1] = index in segments, ikmin[1] = size of segment
 				ikmin = [ikmin, counter-count_start]
-				print "counter %i"%counter,ikmin,segments
+				#print "counter %i"%counter,ikmin,segments
 	
 				# Fit Gaussians to candidate segments
 				#perform initial filtering on candidate segments
@@ -1747,7 +1950,7 @@ def spectralSearch( (T,vec) ):
 			# Store HISA in result_array
 			result[:,j,i] = HISA_merged
 			
-		print "Done with (i,j) = (%i,%i)"%(i,j)
+		#print "Done with (i,j) = (%i,%i)"%(i,j)
 		
 	# Do spatial smoothing of HISA
 	print "Spatial smoothing (convolution)..."

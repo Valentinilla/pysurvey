@@ -43,6 +43,12 @@ class cleanMosaic(object):
 		self.logger.info("%s"%obs.filename)
 		
 		# Get emission data and velocity interval
+		#ndim = len(obs.observation.shape)
+		#if ndim == 3:
+		#	Tb = obs.observation[:,:,:]
+		#else:
+		#	Tb = obs.observation[0,:,:,:]
+
 		Tb = obs.observation[:,:,:,:].astype(float32)
 		dv = fabs(obs.dz/1000.) # [velocity] = km s-1
 		vel = obs.zarray/1000.
@@ -61,7 +67,7 @@ class cleanMosaic(object):
 			ncpu = glob_ncpu#int(ceil(multiprocessing.cpu_count()/1))			
 			self.logger.info("Running on %i cpu(s)"%(ncpu))
 
-			if self.survey == 'CGPS' or self.survey == 'SGPS':
+			if self.survey == 'CGPS':# or self.survey == 'SGPS':
 				
 				self.logger.info("Smoothing negative pixels...")
 				if ncpu > 1:
@@ -83,23 +89,31 @@ class cleanMosaic(object):
 				continuum = pathc+self.survey+'_'+self.mosaic+'_1420_MHz_I_image.fits'
 				checkForFiles(self.logger,[continuum])
 				data, header = pyfits.getdata(continuum, 0, header = True)
-	
+				if self.survey == 'CGPS': cdata = data[0,0,:,:]
+				#if self.survey == 'SGPS': cdata = data[:,:]
+
 				self.logger.info("Removing artifacts due to continuum subtraction...")
 				if ncpu > 1:
 					import itertools
 					samples_list = array_split(Tb[0,zmin:zmax,:,:], ncpu)
 					pool = multiprocessing.Pool(processes=ncpu)
-					results = pool.map(correct_continuum, itertools.izip(samples_list, itertools.repeat(data[0,0,:,:])))
+					results = pool.map(correct_continuum, itertools.izip(samples_list, itertools.repeat(cdata)))
 					pool.close()
 					pool.join()
 					Tb[0,zmin:zmax,:,:] = concatenate(results).astype(Tb.dtype)
 					del samples_list
 					del results
 				else:
-					Tb[0,zmin:zmax,:,:] = correct_continuum( (Tb[0,zmin:zmax,:,:],data[0,0,:,:]) )
+					Tb[0,zmin:zmax,:,:] = correct_continuum( (Tb[0,zmin:zmax,:,:],cdata) )
 			
-				del data
-		
+				del cdata
+
+			if self.survey == 'SGPS':
+				vec = []
+				vec = [obs.xarray,obs.yarray,vel,dv,self.mosaic]
+				Tb[0,zmin:zmax,:,:] = correct_continuum2( (Tb[0,zmin:zmax,:,:],vec) )
+
+
 		elif self.species == 'CO':
 					
 			self.logger.info("Applying Moment Mask method (T.M.Dame)...")

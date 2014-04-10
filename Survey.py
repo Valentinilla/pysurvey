@@ -131,7 +131,6 @@ class Survey:
 		try:
 			self.mosaic
  		except AttributeError:
-			#self.logger.critical("Obs object does not exist. Create it first with the 'makeObs' function.")
 			self.logger.critical("Mosaic object does not exist. Create it first with the 'loadMosaic' function.")
 			return
 

@@ -55,10 +55,6 @@ class deconvolveMosaic(object):
 		
 		vel = mosaic.zarray/1000.
 		dv = fabs(mosaic.dz/1000.)		# [velocity] = km s-1
-		
-		nlon = mosaic.nx
-		nlat = mosaic.ny
-		nvel = mosaic.nz
 
 		# free memory
 		del mosaic.observation
@@ -76,7 +72,7 @@ class deconvolveMosaic(object):
 			sys.exit(0)
 		
 		# Array to store results
-		cubemap = zeros((annuli,nlat,nlon),dtype=float32)
+		cubemap = zeros((annuli,mosaic.ny,mosaic.nx),dtype=float32)
 		
 		self.logger.info("Initializing parameters...")
 		self.logger.info("1) Ts = %.2f K"%Ts)
