@@ -34,8 +34,8 @@ import pyfits
 glob_Tb  = 'brightness temperature'
 glob_ITb = 'integrated brightness temperature'
 glob_N   = 'column density'
-glob_ncpu = 12#8
-glob_annuli = 'Ackermann2012' # Ackermann2012:Galprop
+glob_ncpu = 15
+glob_annuli = 'Galprop' # Ackermann2012:Galprop
 #################################################
 #	START GENERAL FUNCTIONS
 #################################################
@@ -73,7 +73,8 @@ def getMosaicCoordinate(surveyLogger,obs,survey,lon,lat,side):
 	lat_max = max(lat1,lat2)
 	lat_min = min(lat1,lat2)
 	
-	if not survey == 'Galprop':
+	# It needs adjustments!!
+	if 0:#not survey == 'Galprop':
 		if lon_max>obj_lon_max or lon_min<obj_lon_min:
 			surveyLogger.critical("The longitude within the .cfg file")
 			surveyLogger.critical("doesn't match that of the mosaic!")
@@ -512,6 +513,29 @@ def getAnnuli(ver):
 
 	return rmin,rmax,annuli
 
+def getVelPec(glon,glat,paper="SBD2010"):
+	''' 
+	Calculate peculiar velocity of the sun based on one of the two papers
+	- "DB1998":  Dehnen & Binney, 1998, MNRAS, 298, 387
+	- "SBD2010": Schoenrich, Binney & Dehnen, 2010, MNRAS, 403, 1829
+	'''
+	U0 = 0. # radial component (velocity in/out from center)
+	V0 = 0. # tangential component
+	W0 = 0. # vertical component
+	vpec = 0.
+
+	if paper == "DB1998":
+		U0 = -10.0
+		V0 = 5.25
+		W0 = 7.17
+	elif paper == "SBD2010":
+		U0 = -11.1
+		V0 = 12.24
+		W0 = 7.25
+
+	vpec = U0*cos(glon)*cos(glat)+V0*sin(glon)*cos(glat)+W0*sin(glat)
+
+	return vpec
 
 def RotCurveBissantz2003(parlist):
 	'''
@@ -524,14 +548,19 @@ def RotCurveBissantz2003(parlist):
 
 	path = parlist[0]
 	glon = parlist[1] 
+	#glon = radians(145) 
 	glat = parlist[2]
+	#glat = radians(-65)
 	r_sun = parlist[3]
 	v_sun = parlist[4]
 	r_proj = parlist[5]
 	dv = parlist[6]
 	dbin = parlist[7]
 	N = parlist[8]
-	
+
+	#true_dis = dbin*(0.5+arange(N))
+	#r_proj = true_dis*cos(glat)
+
 	# Read in SPH model results
 	# Get Bissantz's data
 	file1 = path+'testvr1.dat'
@@ -591,11 +620,11 @@ def RotCurveBissantz2003(parlist):
 		drot[i] = float(value.split('\n')[0].split()[2])
 		i=i+1
 
-	# Calculate peculiar velocity of the sun: Equation (6)
-	vpec = 10.*cos(glon)*cos(glat)+5.2*sin(glon)*cos(glat)+7.2*sin(glat)	
-
+	# Calculate peculiar velocity of the sun: Equation (6)	
+	vpec = getVelPec(glon,glat)	
+	
 	vbgr = zeros(N,dtype=float32)
-	if(cx > 0.5):
+	if(cx > 0):
 		vbgr[ix[0]] = vrs[yha[ix[0]],xha[ix[0]]]
 	
 	# Remove data holes by linear interpolation
@@ -620,35 +649,45 @@ def RotCurveBissantz2003(parlist):
 				vbgr[ia] = vba[ia]
 			idx = where(vbgr[1:dmax]==0.)
 			cnt = size(idx[0])
-
 	#rad = 0.01*(0.5+arange(4700))
-	#plotFunc(rad,[vbgr])
+	#plotFunc(rad,[rotc])
 	
 	# Define distance from the GC (kpc)
-	radi = sqrt(r_sun**2+r_proj**2-2*r_sun*r_proj*cos(glon))
-		
+	radi = sqrt(r_sun**2+r_proj**2-2*r_sun*r_proj*cos(glon)) # radi.shape = (760,)
+	
 	# Radial velocity (express rotc as a function of radi)
 	x = floor(100*radi).astype(int)
 	c = 100.*radi-x
 	rot_curve = rotc[x]+c*(rotc[x+1]-rotc[x])
+	#plotFunc(radi,[rot_curve])
 	
 	# Uncorrected radial velocity: Equation (5)
 	v_lsr = (r_sun*rot_curve/radi-v_sun)*sin(glon)*cos(glat)
-
+	#plotFunc(radi,[v_lsr])
+	
 	# Extrapolate vbgr
 	pmean = r_sun*cos(glon)
-	if(cos(glon)>0.1):
-		phn = int(round(40.*pmean-5.))
-		vmean = sum( vbgr[phn-5:phn] )/6.
-		vrmean = sum( v_lsr[phn-5:phn] )/6.
-		vbgr[phn+1:N-1] = vmean-vrmean+v_lsr[phn+1:N-1]
-		
-	# Merging
-	wradi = where((9-radi)/2 < 0.,0.,(9-radi)/2)
+	if(cos(glon) > 0.1):
+		i = int(round(40.*pmean-5.))
+		#vmean = mean(vbgr[i-5:i+1])
+		vmean = vbgr[i]
+		#vrmean = mean(v_lsr[i-5:i+1])
+		vrmean = v_lsr[i]
+		vbgr[i:] = v_lsr[i:]+(vmean-vrmean)
+		#vbgr[i:] = v_lsr[i:]+(vbgr[i:]-v_lsr[i:])
+	
+	# Merging - transition from inner and outer Galaxy
+	Rt = 9. # kpc
+	wradi = where(radi > Rt,0.,(Rt-radi)/2.)
 	veff = v_lsr+(vbgr-v_lsr)*where(wradi>1.,1.,wradi)		
 	# Corrected, effective velocity: Equation (7)
-	veff = movingaverage1D(veff,7)-vpec
+	fwhm = 3
+	sigma = fwhm/sqrt(8*log(2))
+	veff = ndimage.gaussian_filter(veff,sigma=sigma,order=0)-vpec
 	veff[-3:] = veff[-4]
+
+	#plotFunc(radi,[veff,v_lsr,vbgr],['Veff','Vlsr','Vbgr'],position='upper right')
+	#exit(0)
 
 	# Weights from delta veff
 	dveff = array(veff)
@@ -669,14 +708,19 @@ def RotCurveClemens1985(parlist):
 
 	path = parlist[0]
 	glon = parlist[1] 
+	#glon = radians(45) 
 	glat = parlist[2]
+	#glat = radians(0)
 	r_sun = 8.5 #parlist[3]
 	v_sun = 220. #parlist[4]
 	r_proj = parlist[5]
 	dv = parlist[6]
 	dbin = parlist[7]
 	N = parlist[8]
-	
+
+	#true_dis = dbin*(0.5+arange(N))
+	#r_proj = true_dis*cos(glat)
+
 	# Coefficients for Rsun = 8.5 kpc and Vsun = 220 kms-1
 	A = [0.,3069.81,-15809.8,43980.1,-68287.3,54904.,-17731.]
 	B = [325.0912,-248.1467,231.87099,-110.73531,25.073006,-2.110625]
@@ -705,24 +749,30 @@ def RotCurveClemens1985(parlist):
 			rotc[k] += D
 	# Plot the Clemens curve
 	#plotFunc(rad,[rotc])
-		
+	
 	# Define distance from GC (kpc)
 	radi = sqrt(r_sun**2+r_proj**2-2*r_sun*r_proj*cos(glon))
-	
+	#print amin(radi),amax(radi)
+	#exit(0)
 	# Radial velocity (express rotc as a function of radi)
 	x = floor(100*radi).astype(int)
 	c = 100.*radi-x
 	rot_curve = rotc[x]+c*(rotc[x+1]-rotc[x])
-	
+	#plotFunc(radi,[rot_curve])
 	# Uncorrected radial velocity: Equation (5)
 	v_lsr = (r_sun*rot_curve/radi-v_sun)*sin(glon)*cos(glat)
 
 	# Calculate peculiar velocity of the sun: Equation (6)
-	vpec = 10.*cos(glon)*cos(glat)+5.2*sin(glon)*cos(glat)+7.2*sin(glat)
-
+	vpec = getVelPec(glon,glat)
+		
 	# Corrected, effective velocity: Equation (7)
-	veff = movingaverage1D(v_lsr,7)-vpec
+	fwhm = 3
+	sigma = fwhm/sqrt(8*log(2))
+	veff = ndimage.gaussian_filter(v_lsr,sigma=sigma,order=0)-vpec
 	veff[-3:] = veff[-4]
+	
+	#plotFunc(radi,[veff,v_lsr],['Veff','Vlsr'],position='upper right')
+	#exit(0)
 	
 	# Weights from delta veff
 	dveff = array(veff)
@@ -736,7 +786,7 @@ def RotCurveClemens1985(parlist):
 	return veff,dveff,weight_veff
 
 
-def Deconvolution( (T,vec) ):
+def Deconvolution( (T,coord,vec) ):
 	"""
 	Deconvolution technique - M.Pohl, P.Englmaier, and N.Bissantz
 	(The Astrophysical Journal, 677:283-291, 2008)
@@ -744,28 +794,35 @@ def Deconvolution( (T,vec) ):
 	"""
 	
 	species = vec[0]
-	vel = vec[1]
-	lat = vec[2]
-	lon = vec[3]
-	dv = vec[4]
-	path = vec[5]
-	C = vec[6]
-	Ts = vec[7]
-	rmin = vec[8]
-	rmax = vec[9]
-	rotcurve = vec[10]
+	vel = vec[2]
+	dv = vec[3]
+	path = vec[4]
+	C = vec[5]
+	Ts = vec[6]
+	rmin = vec[7]
+	rmax = vec[8]
+	rotcurve = vec[9]
+	maxis = vec[10]
 	
 	annuli = len(rmin)
 
 	nlon = T.shape[2]
 	nlat = T.shape[1]
 	nvel = T.shape[0]
+
+	if maxis == 1:
+		lon = vec[1]
+		lat = coord
+	elif maxis == 2:
+		lon = coord
+		lat = vec[1]
 	
 	# free memory
 	del vec
-	
+
 	# Array to store results
 	cubemap = zeros((annuli,nlat,nlon),dtype=float32)
+	cosdec = cos(radians(lat))
 
 	# Line properties
 	sigma = 0. 		# velocoty dispersion (standard deviation of the distribution)
@@ -785,11 +842,6 @@ def Deconvolution( (T,vec) ):
 	vzero = ivzero*dv	    # center of the line profile (km s-1)
 	iv_vec = arange(2*ivzero+1) # vector of velocity channels (indexes) of the line profile
 	v_vec = iv_vec*dv	    # vector of velocity channels (km s-1) of the line profile
-
-	#print ivzero,vzero
-	#print iv_vec
-	#print v_vec
-	#exit(0)
 
 	#gaussian = p[0]*exp(-0.5*power( (x-p[1])/p[2],2))
 	
@@ -838,12 +890,12 @@ def Deconvolution( (T,vec) ):
 	if rotcurve == 'Bissantz2003':
 		gmax = 165.
 	elif rotcurve == 'Clemens1985':
-		gmax = 181.
+		gmax = 180.
 	
 	for l in xrange(0,nlon):
 		glo_deg = lon[l]
 		#print "%i) longitude: %.3f deg"%(l,lon[l])
-		if (abs(glo_deg) < gmax):
+		if (abs(glo_deg) <= gmax):
 			glon = radians(glo_deg)
 			dismin = floor(r_sun*abs(cos(glon))/dbin)
 			radmin = floor(r_sun*abs(sin(glon))/dbin)
@@ -854,7 +906,6 @@ def Deconvolution( (T,vec) ):
 				#print "  %i) latitude: %.3f"%(b,lat[b])
 				gla_deg = lat[b]
 				glat = radians(gla_deg)
-				dimax = N-1
 			
 				# Define intervals and heights: Equations (4)   
 				z = z_sun+true_dis*sin(glat)
@@ -878,15 +929,15 @@ def Deconvolution( (T,vec) ):
 				spec = T[:,b,l]
 				spec[0] = 0.
 				spec[nvel-1] = 0.
-				#rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
-				rspec = fftconvolve(spec,lim,mode='same')
+				rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
+				#rspec = fftconvolve(spec,lim,mode='same')
 				
 				zero_avg = 0.
 				idx_zero_avg = where(rspec<0)
 				if size(idx_zero_avg) > 0:
 					zero_avg = mean(rspec[idx_zero_avg])
 				#print zero_avg,abs(dv*sum(spec)),abs(dv*sum(spec-zero_avg))
-				#plotFunc(vel,[spec,rspec,rspec2],['spec','rspec','rspec2'])
+				#plotFunc(vel,[spec,rspec],['spec','rspec','rspec2'])
 				#exit(0)
 				spec = spec-zero_avg		
 				rspec = rspec-zero_avg		
@@ -922,7 +973,7 @@ def Deconvolution( (T,vec) ):
 							sigma_line = sigma_gas*sqrt(2.*pi)
 							sigma_line_inner = sigma_gas_inner*sqrt(2.*pi)
 						else:
-							iv2 = size(iv_vec)-ivhigh+nvel
+							iv2 = size(iv_vec)-ivhigh+nvel # <--- CHECK INDEXES
 							ivhigh = nvel+1
 							sigma_line = fabs(dv*sum(line[iv1:iv2]))
 							sigma_line_inner = fabs(dv*sum(line_inner[iv1:iv2]))
@@ -933,8 +984,8 @@ def Deconvolution( (T,vec) ):
 						sigma_line = fabs(dv*sum(line[iv1:iv2]))
 						sigma_line_inner = fabs(dv*sum(line_inner[iv1:iv2]))
 					
-					# Finding a match between gas velocity and rotation curve
-					ivgood = where((vpeak > veff) & (vpeak < (veff+dveff)))
+					# Find a match between gas velocity and rotation curve
+					ivgood = where((vpeak >= veff) & (vpeak <= (veff+dveff)))
 					cnt_ivgood = size(ivgood[0])
 					
 					#linevpeak = ones(veff.shape)*vpeak
@@ -942,37 +993,40 @@ def Deconvolution( (T,vec) ):
 					#exit(0)
 						
 					# Standard selection of locations
-						
-					vlist = fabs(veff[0:dimax]-vpeak)
-					#plotFunc(r_proj[0:dimax],veff[0:dimax],vlist[0:dimax],linevpeak[0:dimax])
-						 
-					# Checking if the matching gas velocity exceeds v offset or is in the inner Galaxy 
-					if((min(vlist)>v_offset) and (abs(glo_deg)<lon_inner)):
-						ivmatch = argsort(vlist[hzc:hzd])+hzc
+					# -------------------------------
+					# Gas with forbidden velocity is placed in distance bins with the best matching velocity
+					# except toward the inner Galaxy (abs(l)<20deg) where for a velocity offset of more than
+					# 10 km/s to the nearest allowed velocity we accept only distance bins in the GC region.
+					vforbidden_list = fabs(veff-vpeak)
+					if((min(vforbidden_list) > v_offset) and (abs(glo_deg) < lon_inner)):
+						ivmatch = argsort(vforbidden_list[hzc:hzd])+hzc
 					else:
-						ivmatch = argsort(vlist)
-			
+						ivmatch = argsort(vforbidden_list)	
 					# The line signal is distributed among 8 solutions with weights
-					if(cnt_ivgood < 1):
-						roots = 8 # eight kinematically best-fitting location
+					sol = 8 # eight kinematically best-fitting location
+					if(cnt_ivgood == 0):
+						roots = sol
 						ilocation = zeros(roots,dtype=float32)
 						ilocation[0:roots] = ivmatch[0:roots]
+						#ika = zeros(roots,dtype=float32)
+						#ika[:] = round(0.5*ilocation[:]-0.25)
 					else:
-						roots = cnt_ivgood+8
+						roots = cnt_ivgood+sol
 						ilocation = zeros(roots,dtype=float32)
 						ilocation[0:cnt_ivgood] = ivgood[0][0:cnt_ivgood]
-						ilocation[cnt_ivgood:roots] = ivmatch[0:8]
+						ilocation[cnt_ivgood:roots] = ivmatch[0:sol]
+						#ika = zeros(roots,dtype=float32)
+						#ika[:] = round(0.5*ilocation[:]-0.25)
 					
 					# Product of three weights (velocity,kinematic,height)
-					wa = zeros(roots,dtype=float)
-					
-					for i in xrange(0,roots):
-						j = ilocation[i]
+					wa = zeros(roots,dtype=float32)
+					for i,j in enumerate(ilocation):
 						# Thickness of the gas layer - equation (15)
 						sigma_z = 1.204*((0.06-0.04*radi[j]/r_sun)+0.095*(radi[j]/r_sun)**2) # pc
 						zc = 0.
+												
 						# Warp in the outer region of the Galaxy (r >= 11 kpc)
-						if(radi[j] > 10.):
+						if(radi[j] >= 11.):
 							sphi = r_proj[j]*sin(glon)/radi[j]
 							cphi = (r_proj[j]*cos(glon)-r_sun)/radi[j]
 							nrx = floor(10.*(radi[j]-10.))
@@ -980,7 +1034,8 @@ def Deconvolution( (T,vec) ):
 							sphib = 2.*sphi*cphi*cos(phia[nrx])+(sphi**2-cphi**2)*sin(phia[nrx])
 							# equation (16)
 							zc = warpa[nrx]+warpb[nrx]*sphia+warpc[nrx]*sphib
-													
+						
+						#gaussian = p[0]*exp(-0.5*power( (x-p[1])/p[2],2))
 						# Weights from height above plane
 						weight_z = gaussian(z[j],[1,zc,sigma_z],normalized=False)
 						weight_z = where(weight_z>exp(-20),weight_z,exp(-20))
@@ -988,16 +1043,18 @@ def Deconvolution( (T,vec) ):
 						weight_k = gaussian(radi[j],[1,0,r_scale],normalized=False)
 						
 						wa[i] = weight_veff[j]*weight_k*weight_z
-					
+						
 					wtot = sum(wa)
 					wgn = 0.
 					
 					# add intensity line (= sigma_line*amp) to cubemap
-					for i in xrange(roots):
-						k = ilocation[i]
-						if(radi[k] < 1.): wgn += wa[i]/wtot
+					for i,j in enumerate(ilocation):
+						if(radi[j] < 1.): wgn += wa[i]/wtot
 						wga = wa[i]/wtot
-
+						
+						#if fabs(vpeak) > 50.:
+							#continue
+						
 						wamp = 0.
 						if species == 'HI' or species == 'HI_unabsorbed':
 							wamp = wga*amp*sigma_line*C
@@ -1009,24 +1066,18 @@ def Deconvolution( (T,vec) ):
 							wamp = wga*amp*(sigma_line*sqrt(8*log(2)))*C
 
 						for a in xrange(annuli):
-							if(radi[k] >= rmin[a]) and (radi[k] < rmax[a]):
+							if(radi[j] > rmin[a]) and (radi[j] <= rmax[a]):
 								cubemap[a,b,l] += wamp
-							if (radi[k] > 50.):
-								print "Distance > 50. kpc! (%.2f)"%radi[k]
+							if (radi[j] > 50.):
+								print "Distance > 50. kpc! (%.2f)"%radi[j]
 					
 					wgo = 1.-wgn
 					wco_previous = wco
-					beforespec = zeros(spec.shape)
-					beforespec[:] = spec[:]
 					
 					spec[ivlow:ivhigh] -= (wgo*amp*line[iv1:iv2]+wgn*amp*line_inner[iv1:iv2]*sigma_line/sigma_line_inner)
-					#rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
-					rspec = fftconvolve(spec,lim,mode='same')
-					#print amp
-					#print 'spec[%i:%i] = %s'%(vel[ivlow],vel[ivhigh],spec[ivlow:ivhigh])
-					#print 'line[%i:%i] = %s'%(iv1,iv2,line[iv1:iv2])
-					#print 'line_inner[%i:%i] = %s'%(iv1,iv2,line_inner[iv1:iv2])
-					#plotFunc(vel,[rspec,beforespec,spec])
+					rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
+					#rspec = fftconvolve(spec,lim,mode='same')
+					
 					wco = fabs(dv*sum(spec))
 					wcb = wco/sigma_line
 					
@@ -1043,13 +1094,20 @@ def Deconvolution( (T,vec) ):
 						report.write(string)
 					
 					#print "wco = %.3f, wco_previous = %.3f"%(wco,wco_previous)
+					#if fabs(vpeak) > 250.:
 					#plotFunc(vel,[spec,rspec],['observed','gaussian filter'], position='upper right')
 					#exit(0)
 
 				#print cnt1,wco
 				#plotFunc(vel,[spec,rspec],['observed','gaussian filter'], position='upper right')
 				#exit(0)
-	report.close()	
+	report.close()
+
+	# Corrections for latitude
+	#cubemap = cubemap*cos(radians(lat))
+	for b in xrange(nlat):
+		cubemap[:,b,:] *= cosdec[b]
+
 	return cubemap
 
 #################################################

@@ -47,6 +47,9 @@ class deconvolveMosaic(object):
 		else:
 			Tb = mosaic.observation[0,:,:,:]
 		
+		# In case of multiprocessing analysis split the array along the maximum axis
+		maxis = 1+argmax(Tb.shape[-2:])
+		
 		lon = mosaic.xarray
 		lat = mosaic.yarray
 		
@@ -80,34 +83,52 @@ class deconvolveMosaic(object):
 		self.logger.info("2) dV = %.2f km/s"%dv)
 		self.logger.info("3) Tb(min) = %.2f K, Tb(max) = %.2f K"%(amin(Tb),amax(Tb)))
 		self.logger.info("4) Rotation curve: '%s'"%rotcurve)
+		self.logger.info("5) Annuli: '%s'"%glob_annuli)
 		
 		self.logger.info("Calculating gas distribution...")
 		path2 = getPath(self.logger,'rotcurve_mpohl')
-		list = [self.species,vel,lat,lon,dv,path2,C,Ts,rmin,rmax,rotcurve]	
+		
+		list = []
+		if maxis == 1:
+			list = [self.species,lon,vel,dv,path2,C,Ts,rmin,rmax,rotcurve,maxis]
+			coord = lat
+		elif maxis == 2:
+			list = [self.species,lat,vel,dv,path2,C,Ts,rmin,rmax,rotcurve,maxis]
+			coord = lon
+		else:
+			self.logger.critical("ERROR in splitting Tb!")
+			sys.exit(0)
 		
 		# Using Multiprocessing if enough cpus are available
 		import multiprocessing
 		
 		ncpu = glob_ncpu
+		# Maximum number of cpus
 		if ncpu > 16: ncpu = 16
-		
-		if Tb.shape[1] < ncpu:
-			ncpu = Tb.shape[1]
-		
+		# Minimum number of cpus
+		if Tb.shape[maxis] < ncpu:
+			ncpu = Tb.shape[maxis]
+
+		#print coord.shape
+		#print coord.shape[0]/ncpu
+		#exit(0)		
+	
 		self.logger.info("Running on %i cpu(s)"%(ncpu))
 		if ncpu > 1:
 			import itertools		
-			samples_list = array_split(Tb, ncpu, axis = 1)
+			arrays = array_split(Tb, ncpu, axis=maxis)
+			coords = array_split(coord, ncpu, axis=0)
 			pool = multiprocessing.Pool(processes = ncpu)
-			results = pool.map(Deconvolution, itertools.izip(samples_list, itertools.repeat(list)))
+			results = pool.map(Deconvolution, itertools.izip(arrays,coords,itertools.repeat(list)))
 			pool.close()
 			pool.join()
-			cubemap = concatenate(results,axis=1)
-			del samples_list
+			cubemap = concatenate(results,axis=maxis)
+			del arrays
+			del coords
 			del list
 			del results
 		else:
-			cubemap = Deconvolution( (Tb,list) )
+			cubemap = Deconvolution( (Tb,coord,list) )
 			
 		if HI_all_OR: cubemap = cubemap*1e-20
 		
@@ -148,6 +169,7 @@ class deconvolveMosaic(object):
 		else:
 			newheader['object'] = ("Mosaic %s (%s/%s)"%(self.mosaic,self.nmsc,self.totmsc),"%s Mosaic (n/tot)"%self.survey)
 		newheader.add_history('Rotation curve: %s'%rotcurve)
+		newheader.add_history('Annuli: %s'%glob_annuli)
 
 		# Output file
 		results = pyfits.PrimaryHDU(cubemap, newheader)
