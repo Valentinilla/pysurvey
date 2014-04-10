@@ -213,7 +213,14 @@ class makeMosaic(object):
 					
 					#del samples_list
 					#del results
-					Tb[0,obs.zmin:obs.zmax,:,:] = correct_data2(Tb[0,zmin:zmax,:,:])
+
+					# Get HI continuum data
+					pathc = getPath(self.logger, self.survey.lower()+'_hi_continuum')
+					continuum = pathc+self.survey+'_'+self.mosaic+'_1420_MHz_I_image.fits'
+					checkForFiles(self.logger,[continuum])
+					data, header = pyfits.getdata(continuum, 0, header = True)
+					
+					Tb[0,obs.zmin:obs.zmax,:,:] = correct_data2(Tb[0,zmin:zmax,:,:],data[0,0,:,:])
 					
 				if self.species == 'HISA':
 					Tb = zeros(Tb.shape,dtype=float32)

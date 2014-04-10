@@ -283,53 +283,114 @@ def getRMS(surveyLogger,T,zmax):
 	return rms
 
 
-def correct_data2(T,rms=4):
+def correct_data2(T,data,rms=4):
 
 	nz = T.shape[0]
-	#print nz
-	def disk_structure(n):
-		struct = zeros((2 * n + 1, 2 * n + 1))
-		x, y = indices((2 * n + 1, 2 * n + 1))
-		mask = (x - n)**2 + (y - n)**2 <= n**2
-		struct[mask] = 1
-		return struct.astype(bool)
-
-	def granulometry(data, n):#sizes=None):
-		#s = max(data.shape)
-		#if sizes == None:
-		#	sizes = range(1, s/2, 2)
-		#granulo = [ndimage.binary_opening(data, \
-		#	structure=disk_structure(n)).sum() for n in sizes]
-		granulo = ndimage.binary_opening(data,structure=disk_structure(n))
-		return granulo
-			
+	ny = T.shape[1]
+	nx = T.shape[2]
+	
+	data[isnan(data)] = 0.
+	
+	from sklearn.mixture import GMM
+	classif = GMM(n_components=2)
+	classif.fit(data.reshape((data.size, 1)))
+	print classif.means_
+	threshold = mean(classif.means_)
+	#print threshold
+	
+	mask = data >  threshold
+	filled = ndimage.morphology.binary_fill_holes(mask)
+	coded_regions, num_regions = ndimage.label(filled)
+	#del filled
+	data_slices = ndimage.find_objects(coded_regions)
+	region = [coord for coord in data_slices]
+	del data_slices
+	print num_regions
+	
 	import matplotlib.pyplot as plt
-
-	for z in xrange(nz):
-		#ndimage.grey_closing(T[z,:,:], size=(3,3))
-		#T[z,:,:] = ndimage.binary_closing(T[z,:,:],structure=disk_structure(18))
-		mask = T[z,:,:] < 0#T[z,:,:].mean()
-		#granulo = granulometry(mask,18)#,sizes = arange(2, 19, 4))
-		#plt.figure(figsize=(6, 2.2))
-		plt.figure()
-
-		#plt.subplot(121)
-		plt.imshow(mask, cmap=plt.cm.gray)
-		opened = ndimage.binary_closing(mask, structure=disk_structure(2))
-		opened_more = ndimage.binary_opening(mask, structure=disk_structure(20))
-		plt.contour(opened, [0.5], colors='b', linewidths=2)
-		plt.contour(opened_more, [0.5], colors='r', linewidths=2)
-		plt.axis('off')
-		#plt.subplot(122)
-		#plt.plot(arange(2, 19, 4), granulo, 'ok', ms=8)
+	plt.figure()
+	#n,bins,patches = plt.hist(data.flatten(),100,normed=1,facecolor='green',alpha=0.75,log=True)
+	#plt.axvline(threshold, color='r', ls='--', lw=2)	
+	#plt.contour(mask,6)#, [0.5], colors='r', linewidths=2)
+	#plt.imshow(filled, cmap=plt.cm.gray)
+	#plt.axis('off')
+	#plt.show()
+	#exit(0)
+	
+	for z in xrange(40,nz):
 		
-		#plt.subplots_adjust(wspace=0.02, hspace=0.15, top=0.95, bottom=0.15, left=0, right=0.95)
-		plt.show()
-		
-	exit(0)
+		slice = T[z,:,:]		
+		# loop over each region
+		for x in region:
+			a,b = (max(x[0].start-1,0),min(x[0].stop+1,ny-1))
+			c,d = (max(x[1].start-1,0),min(x[1].stop+1,nx-1))
+			
+			source = data[a:b,c:d]
+			test = mean(slice[a:b,c:d])
+			
+			lx = fabs(c-d)+5
+			ly = fabs(a-b)+5
+
+			x31 = c-lx
+			x32 = d-lx
+			x41 = c+lx
+			x42 = d+lx
+			
+			y11 = a-ly
+			y12 = b-ly
+			y21 = a+ly
+			y22 = b+ly
+
+			# correct if outside the boundaries
+			if x31 < 0: x31 = 0
+			if x32 > nx: x32 = nx
+			if x41 < 0: x41 = 0
+			if x42 > nx: y42 = nx
+
+			if y11 < 0: y11 = 0
+			if y12 > ny: y12 = ny
+			if y21 < 0: y21 = 0
+			if y22 > ny: y22 = ny
+			
+			zone1 = slice[y11:y12,c:d]
+			zone2 = slice[y21:y22,c:d]
+			zone3 = slice[a:b,x31:x32]
+			zone4 = slice[a:b,x41:x42]
+
+			mzone1 = mean(slice[a-ly:b-ly,c:d])
+			mzone2 = mean(slice[a+ly:b+ly,c:d])
+			mzone3 = mean(slice[a:b,c-lx:d-lx])
+			mzone4 = mean(slice[a:b,c+lx:d+lx])
+
+			max_val = max(mzone1,mzone2,mzone3,mzone4)
+			min_val = min(mzone1,mzone2,mzone3,mzone4)
+			
+			#if test <= (1.5*max_val) and test >= (1.5*min_val):
+			#	print "OK"
+			
+			if test > (1.5*max_val) or test < (1.5*min_val):
+				T[z,a:b,c:d] = (zone1+zone2+zone3+zone4)/4
+
+			#ERROR:
+			#T[z,a:b,c:d] = (zone1+zone2+zone3+zone4)/4
+			#ValueError: operands could not be broadcast together with shapes (7,7) (7,0)			
+
+			#plt.imshow(T[z,a:b,c:d], cmap=plt.cm.gray)
+			#plt.imshow(source, cmap=plt.cm.gray)
+			#plt.contour(source, 2, colors='g', linewidths=1)
+			#plt.show()
+			#exit(0)
 
 	return T
 
+def nearest_neighbors(xarray,yarray):
+	
+	deltax = x - reshape(x,len(x),1) # compute all possible combination
+	deltay = y - reshape(y,len(y),1) # 
+	dist = sqrt(deltax**2+deltay**2)
+	dist = dist + identity(len(x))*dist.max() # eliminate self matching
+	# dist is the matrix of distances from one coordinate to any other
+	return dist
 
 # HI corrections
 def correct_data(T,rms=4):
