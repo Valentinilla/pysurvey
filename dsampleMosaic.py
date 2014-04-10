@@ -64,62 +64,18 @@ class dsampleMosaic(object):
 		skymap = zeros((obs.nz,nysky,nxsky),dtype=float32)
 		sxarray = fabs(dxn)*arange(nxsky+1.)
 		syarray = fabs(dyn)*arange(nysky+1.)
-
+		
 		x1 = amin(obs.xarray)
-		x2 = amax(obs.xarray)
 		y1 = amin(obs.yarray)+90.
-		y2 = amax(obs.yarray)+90.
 		
 		idx1 = where(sxarray<=x1)
 		ix1 = amax(idx1[0])
 		
-		idx2 = where(sxarray<=x2)
-		ix2 = amax(idx2[0])
-		
 		idy1 = where(syarray<=y1)
 		iy1 = amax(idy1[0])
 		
-		idy2 = where(syarray<=y2)
-		iy2 = amax(idy2[0])
-		
-		def indexes(x1,x2,i1,i2,arr,nx):
-			
-			eps1 = [fabs(arr[i1-1]-x1),i1-1]
-			eps2 = [fabs(arr[i1]-x1),i1]
-			eps3 = [fabs(arr[i1+1]-x1),i1+1]
-			eps4 = [fabs(arr[i2-1]-x2),i2-1]
-			eps5 = [fabs(arr[i2]-x2),i2]
-			eps6 = [fabs(arr[i2+1]-x2),i2+1]
-			eps = min(eps1[0],eps2[0],eps3[0],eps4[0],eps5[0],eps6[0])
-			
-			idx1,idx2 = 0,0
-			
-			if eps == eps1[0]:
-				idx1 = eps1[1]
-				idx2 = idx1+nx
-			elif eps == eps2[0]:
-				idx1 = eps2[0]
-				idx2 = idx1+nx
-			elif eps == eps3[0]:
-				idx1 = eps3[1]
-				idx2 = idx1+nx
-			elif eps == eps4[0]:
-		                idx2 = eps4[0]
-		                idx1 = idx2-nx
-		        elif eps == eps5[0]:
-		                idx2 = eps5[1]
-		                idx1 = idx2-nx
-		        elif eps == eps6[0]:
-		                idx2 = eps6[1]
-		                idx1 = idx2-nx
-		
-			return idx1,idx2
-		
-		i1,i2 = indexes(x1,x2,ix1,ix2,sxarray,nxn)
-		j1,j2 = indexes(y1,y2,iy1,iy2,syarray,nyn)
-		
 		# Broadcast CO data in the skymap
-		skymap[:,j1:j2,i1:i2] = data
+		skymap[:,iy1:iy1+nyn,ix1:ix1+nxn] = data
 		
 		obs.keyword['naxis1'] = nxsky #nxn
 		obs.keyword['crpix1'] = 1. #round(nxn/2.)+1

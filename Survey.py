@@ -320,7 +320,7 @@ class Survey:
 			self.logger.info(self.ret.subn(', ',str(self.decon))[0])
 			
 		except(FileNotFound):
-			self.logger.critical("One or more needed files do not exist")
+			return
 		
 
 def printCLIHelp():

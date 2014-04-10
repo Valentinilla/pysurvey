@@ -287,8 +287,8 @@ def moment_mask(surveyLogger,T,zmax,dx,dv):
 	fwhm_s = fabs(dx)*2 #px
 	fwhm_v = fabs(dv)*2
 	
-	sig_s = fwhm_s/sqrt(8*log(2))
-	sig_v = fwhm_v/sqrt(8*log(2))
+	sig_s = fwhm_s/sqrt(8*log10(2))
+	sig_v = fwhm_v/sqrt(8*log10(2))
 	Tsmooth = ndimage.gaussian_filter(T,sigma=(sig_v,sig_s,sig_s),order=(0,0,0))
 	
 	# Calculate the rms for smoothed data
@@ -308,7 +308,6 @@ def moment_mask(surveyLogger,T,zmax,dx,dv):
 	T[:,:,:] = Mask*T
 					
 	return T
-
 
 def getRMS(surveyLogger,T,zmax):
 	'''
@@ -380,7 +379,6 @@ def correct_continuum2( (T,vec) ):
 					#print k,k+1,k1,k2,j,drvec[j],len(zvec)
 					T[k1:k2,y1:y2,x1:x2]=patching(T,x1,x2,y1,y2,k1,k2,location=location)
 					j += 1
-
 	
 	if mosaic == 'G258.0':
 		# Region 1a		
@@ -929,7 +927,7 @@ def correct_data(T,rms=4):
 
 			#T[z,a:b,c:d] = ndimage.median_filter(area,(3,3))
 			fwhm_spat = 3 #px
-			sig = fwhm_spat/sqrt(8*log(2))
+			sig = fwhm_spat/sqrt(8*log10(2))
 			T[z,a:b,c:d] = ndimage.gaussian_filter(area,sigma=(sig,sig),order=(0,0))
 				
 	return T
@@ -1008,15 +1006,18 @@ def getVelPec(glon,glat,paper="SBD2010"):
 	vpec = 0.
 
 	if paper == "DB1998":
-		U0 = -10.0
+		U0 = 10.0
 		V0 = 5.25
 		W0 = 7.17
 	elif paper == "SBD2010":
-		U0 = -11.1
+		U0 = 11.1
 		V0 = 12.24
 		W0 = 7.25
 
 	vpec = U0*cos(glon)*cos(glat)+V0*sin(glon)*cos(glat)+W0*sin(glat)
+	#print glon,glat,vpec
+	#print U0*cos(glon)*cos(glat)
+	#exit(0)
 
 	return vpec
 
@@ -1164,7 +1165,7 @@ def RotCurveBissantz2003(parlist):
 	veff = v_lsr+(vbgr-v_lsr)*where(wradi>1.,1.,wradi)		
 	# Corrected, effective velocity: Equation (7)
 	fwhm = 3
-	sigma = fwhm/sqrt(8*log(2))
+	sigma = fwhm/sqrt(8*log10(2))
 	veff = ndimage.gaussian_filter(veff,sigma=sigma,order=0)-vpec
 	veff[-3:] = veff[-4]
 
@@ -1190,16 +1191,16 @@ def RotCurveClemens1985(parlist):
 
 	path = parlist[0]
 	glon = parlist[1] 
-	#glon = radians(45) 
+	#glon = radians(0) 
 	glat = parlist[2]
 	#glat = radians(0)
-	r_sun = 8.5 #parlist[3]
-	v_sun = 220. #parlist[4]
+	r_sun = parlist[3]
+	v_sun = parlist[4]
 	r_proj = parlist[5]
 	dv = parlist[6]
 	dbin = parlist[7]
 	N = parlist[8]
-
+	
 	#true_dis = dbin*(0.5+arange(N))
 	#r_proj = true_dis*cos(glat)
 
@@ -1234,22 +1235,23 @@ def RotCurveClemens1985(parlist):
 	
 	# Define distance from GC (kpc)
 	radi = sqrt(r_sun**2+r_proj**2-2*r_sun*r_proj*cos(glon))
-	#print amin(radi),amax(radi)
-	#exit(0)
+	#print amin(radi),amax(radi),amin(rad),amax(rad)
+	
 	# Radial velocity (express rotc as a function of radi)
-	x = floor(100*radi).astype(int)
+	x = floor(100.*radi).astype(int)
 	c = 100.*radi-x
 	rot_curve = rotc[x]+c*(rotc[x+1]-rotc[x])
 	#plotFunc(radi,[rot_curve])
+	
 	# Uncorrected radial velocity: Equation (5)
 	v_lsr = (r_sun*rot_curve/radi-v_sun)*sin(glon)*cos(glat)
-
+	
 	# Calculate peculiar velocity of the sun: Equation (6)
-	vpec = getVelPec(glon,glat)
+	vpec = 0.1*getVelPec(glon,glat)
 		
 	# Corrected, effective velocity: Equation (7)
 	fwhm = 3
-	sigma = fwhm/sqrt(8*log(2))
+	sigma = fwhm/sqrt(8*log10(2))
 	veff = ndimage.gaussian_filter(v_lsr,sigma=sigma,order=0)-vpec
 	veff[-3:] = veff[-4]
 	
@@ -1268,70 +1270,48 @@ def RotCurveClemens1985(parlist):
 	return veff,dveff,weight_veff
 
 
-def Deconvolution( (T,coord,vec) ):
+def Deconvolution( (Tb,Tcont,Tunab,coord,vec) ):
 	"""
 	Deconvolution technique - M.Pohl, P.Englmaier, and N.Bissantz
 	(The Astrophysical Journal, 677:283-291, 2008)
 	Limits for Bissantz2003 rotation curve: galactic longitude < |165 deg|
 	"""
 	#[self.logger,self.survey,self.mosaic,self.species,lat,vel,dy,dv,path2,utilsConf,rmin,rmax,rotcurve,maxis]
-	#(vec[0],survey,mosaic,dy,dv,r,ivpeak,Tpeak,l,b,sigma_line)
-	if 1:
-		survey = vec[1]
-		mosaic = vec[2]
-		species = vec[3]
-		vel = vec[5]
-		dy = vec[6]
-		dv = vec[7]
-		path = vec[8]
-		C = float(vec[9]['c'])
-		Ts = float(vec[9]['tspin'])
-		rmin = vec[10]
-		rmax = vec[11]
-		rotcurve = vec[12]
-		maxis = vec[13]
+	#[paths,self.survey,self.mosaic,self.species,lat,vel,mosaic.dy,dv,utilsConf,rmin,rmax,rotcurve,maxis]
+	survey = vec[1]
+	mosaic = vec[2]
+	species = vec[3]
+	vel = vec[5]
+	dy = vec[6]
+	dv = vec[7]
+	path = vec[0][0]
+	C = float(vec[8]['c'])
+	Ts = float(vec[8]['tspin'])
+	Tcmb = float(vec[8]['tcmb'])
+	rmin = vec[9]
+	rmax = vec[10]
+	rotcurve = vec[11]
+	maxis = vec[12]
 
-		annuli = len(rmin)		
+	annuli = len(rmin)		
 
-		if maxis == 1:
-			lon = vec[4]
-			lat = coord
-		elif maxis == 2:
-			lon = coord
-			lat = vec[4]
+	if maxis == 1:
+		lon = vec[4]
+		lat = coord
+	elif maxis == 2:
+		lon = coord
+		lat = vec[4]
 
-	#[self.species,lat,vel,dv,path2,utilsConf,rmin,rmax,rotcurve,maxis]
-	if 0:
-		species = vec[0]
-		vel = vec[2]
-		dv = vec[3]
-		path = vec[4]
-		C = float(vec[5]['c'])
-		Ts = float(vec[5]['tspin'])
-		rmin = vec[6]
-		rmax = vec[7]
-		rotcurve = vec[8]
-		maxis = vec[9]
-		
-		annuli = len(rmin)
-		
-		if maxis == 1:
-			lon = vec[1]
-			lat = coord
-		elif maxis == 2:
-			lon = coord
-			lat = vec[1]
-
-	nlon = T.shape[2]
-	nlat = T.shape[1]
-	nvel = T.shape[0]
+	nlon = Tb.shape[2]
+	nlat = Tb.shape[1]
+	nvel = Tb.shape[0]
 	
 	# free memory
 	#del vec
 
 	# Array to store results
 	cubemap = zeros((annuli,nlat,nlon),dtype=float32)
-	cosdec = cos(radians(lat))
+	cosb = cos(radians(lat))
 
 	# Line properties
 	sigma = 0. 		# velocoty dispersion (standard deviation of the distribution)
@@ -1375,20 +1355,30 @@ def Deconvolution( (T,coord,vec) ):
 	warpc[0:53] = 0.
 	
 	# Physical variables
-	r_sun = 8.		#kpc
+	if rotcurve == 'Bissantz2003':
+		r_sun = 8.	#kpc
+		v_sun = 210. 	#km s-1
+		gmax = 165. # +165, -165(=345)
+	elif rotcurve == 'Clemens1985':
+		r_sun = 8.5	#kpc
+		v_sun = 220.	#km s-1
+		gmax = 180. # +180, -180(=360)
+
+	gmax = 1e3
+	
 	z_sun = 0.015		#kpc
-	v_sun = 210. 		#km s-1
 	gal_radius = 20. 	#kpc
 	gal_thick = 1. 		#kpc
 	dbin = 1/gal_radius 	#50 pc
 	r_scale = 10. 		#radial scale [kpc]
-	Tbg = 2.66		# Tb of microwave background at 21 cm [K]
 	
 	# Cuts
 	v_offset = 10.		#velocity offset [10 km/s]
 	lon_inner = 20.		#inner Galaxy longitude (|l|<=20) [deg]
 	residual_line = 1.	#threshold of residual line spectrum [K km/s]
-	amp_frac = 0.1#0.2		#percentage of the peak value [x100 %]
+	if species == 'HISA':
+		residual_line = 0.01
+	amp_frac = 0.2		#percentage of the peak value [x100 %]
 	
 	N = 760
 	
@@ -1396,18 +1386,11 @@ def Deconvolution( (T,coord,vec) ):
 	true_dis = dbin*(0.5+arange(N))
 	
 	report = open("report_"+species+".dat","w")
-	gmax = 0.
-	if rotcurve == 'Bissantz2003':
-		gmax = 165. # +165, -165(=345)
-	elif rotcurve == 'Clemens1985':
-		gmax = 180. # +180, -180(=360)
-
-	condition = 1
 	
 	for l in xrange(0,nlon):
 		glo_deg = lon[l]
-		#print "%i) longitude: %.3f deg"%(l,lon[l])
-		if condition:#(abs(glo_deg) <= gmax):
+		#print "[%i/%i] longitude: %.3f deg"%(l,nlon,lon[l])
+		if (abs(glo_deg) <= gmax):
 			glon = radians(glo_deg)
 			dismin = floor(r_sun*abs(cos(glon))/dbin)
 			radmin = floor(r_sun*abs(sin(glon))/dbin)
@@ -1418,28 +1401,29 @@ def Deconvolution( (T,coord,vec) ):
 				#print "  %i) latitude: %.3f"%(b,lat[b])
 				gla_deg = lat[b]
 				glat = radians(gla_deg)
-
+				
+				if species == 'HISA' and Tcont[b,l] == 0.:
+					continue
+				
 				# Line spectrum
 				spec = array(nvel)
-				spec = T[:,b,l]
+				spec = Tb[:,b,l]
 				spec[0] = 0.
 				spec[-1] = 0.
-				rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
-				#rspec = fftconvolve(spec,lim,mode='same')
+				if not species == 'HISA':
+					rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
+					#rspec = fftconvolve(spec,lim,mode='same')
+				else:
+					rspec = spec
 				
 				zero_avg = 0.
 				idx_zero_avg = where(rspec<0)
 				
 				if size(idx_zero_avg[0]) > 0:
 					zero_avg = mean(rspec[idx_zero_avg])
-				#print zero_avg,abs(dv*sum(spec)),abs(dv*sum(spec-zero_avg))
 				
 				if not spec.any() != 0.:
-					#plotFunc(vel,[spec,rspec],['spec','rspec'])
 					continue
-				#else:
-					#continue
-					#plotFunc(vel,[spec,rspec],['spec','rspec'])
 				
 				spec = spec-zero_avg		
 				rspec = rspec-zero_avg
@@ -1465,21 +1449,16 @@ def Deconvolution( (T,coord,vec) ):
 				wcb = wco/sigma_line
 				wco_previous = 0
 				cnt1 = 0
-
-				#if species == 'HISA':
-				#	wamp = get_ampHISA(survey,mosaic,r,ivmax,Tmax)
-				#	for a in xrange(annuli):
-				#		if(radi[j] > rmin[a]) and (radi[j] <= rmax[a]):
-				#			cubemap[a,b,l] += wamp
-				#		if (radi[j] > 50.):
-				#			print "Distance > 50. kpc! (%.2f)"%radi[j]
-
+				
 				# Start deconvolution
-				while(wco > residual_line):
+				while wco > residual_line:
 					
 					ivpeak = argmax(rspec)
 					vpeak = vel[ivpeak]
-										
+					
+					if species == 'HISA' and Tcont[b,l]>Tunab[ivpeak,b,l]:
+						break
+					
 					ivlow = ivpeak-ivzero
 					ivhigh = ivpeak+ivzero+1
 					
@@ -1526,22 +1505,26 @@ def Deconvolution( (T,coord,vec) ):
 						ilocation = zeros(roots,dtype=float32)
 						ilocation[0:roots] = ivmatch[0:roots]
 						#ika = zeros(roots,dtype=float32)
-						#ika[:] = round(0.5*ilocation[:]-0.25)
+						#ika = (0.5*ilocation-0.25).round()
 					else:
 						roots = cnt_ivgood+sol
 						ilocation = zeros(roots,dtype=float32)
 						ilocation[0:cnt_ivgood] = ivgood[0][0:cnt_ivgood]
 						ilocation[cnt_ivgood:roots] = ivmatch[0:sol]
 						#ika = zeros(roots,dtype=float32)
-						#ika[:] = round(0.5*ilocation[:]-0.25)
+						#ika = (0.5*ilocation-0.25).round()
 					
 					# Product of three weights (velocity,kinematic,height)
 					wa = zeros(roots,dtype=float32)
 					for i,j in enumerate(ilocation):
 						# Thickness of the gas layer - equation (15)
-						sigma_z = 1.204*((0.06-0.04*radi[j]/r_sun)+0.095*(radi[j]/r_sun)**2) # pc
-						zc = 0.
-												
+						#sigma_z = 1.204*((0.06-0.04*radi[j]/r_sun)+0.095*(radi[j]/r_sun)**2) # pc
+						if species == 'HI' or species == 'HI_unabsorbed' or species == 'HISA':
+							sigma_z = 100.+30.*radi[j]/r_sun+90.*(radi[j]/r_sun)**2 # pc
+						elif species == 'CO':
+							sigma_z = 50-50*radi[j]/r_sun+90*(radi[j]/r_sun)**2 # pc
+						
+						zc = 0.							
 						# Warp in the outer region of the Galaxy (r >= 11 kpc)
 						if(radi[j] >= 11.):
 							sphi = r_proj[j]*sin(glon)/radi[j]
@@ -1552,7 +1535,6 @@ def Deconvolution( (T,coord,vec) ):
 							# equation (16)
 							zc = warpa[nrx]+warpb[nrx]*sphia+warpc[nrx]*sphib
 						
-						#gaussian = p[0]*exp(-0.5*power( (x-p[1])/p[2],2))
 						# Weights from height above plane
 						weight_z = gaussian(z[j],[1,zc,sigma_z],normalized=False)
 						weight_z = where(weight_z>exp(-20),weight_z,exp(-20))
@@ -1563,48 +1545,52 @@ def Deconvolution( (T,coord,vec) ):
 						
 					wtot = sum(wa)
 					wgn = 0.
-
+					
+					amp = 0.
 					if species == 'HI' or species == 'HI_unabsorbed':
 						if rspec[ivpeak] > Ts-5: rspec[ivpeak] = Ts-5
-						amp = amp_frac*log((Ts-Tbg)/(Ts-Tbg-rspec[ivpeak]))*Ts
-						amp = where(wcb>amp,amp,wcb)
-					elif species == 'CO':			
+						amp = amp_frac*log((Ts-Tcmb)/(Ts-Tcmb-rspec[ivpeak]))*Ts
+					elif species == 'CO':
 						amp = amp_frac*rspec[ivpeak]
-						amp = where(wcb>amp,amp,wcb)
-					#elif species == 'HISA':
-					#	amp = amp_frac*get_ampHISA(vec[7],vec[0],vec[2],r_proj,ivpeak,rspec[ivpeak],l,b,sigma_line)
-					#	amp = where(wcb>amp,amp,wcb)
+					elif species == 'HISA':
+						Tc = Tcont[b,l]
+						Tu = Tunab[ivpeak,b,l]
+						amp = amp_frac*get_ampHISA(rspec[ivpeak],Tc,Tu,dy,dv,r_proj[j],sigma_line,vec[8])
+						if amp==nan: break
+					amp = where(wcb>amp,amp,wcb)
 					
 					# add intensity line (= sigma_line*amp) to cubemap
 					for i,j in enumerate(ilocation):
-						#z = ika[i]
 						if(radi[j] < 1.): wgn += wa[i]/wtot
 						wga = wa[i]/wtot
 						
 						wamp = 0.
-						if species == 'HI' or species == 'HI_unabsorbed':
-							wamp = wga*amp*sigma_line*C
+						if species == 'HI' or species == 'HI_unabsorbed' or species == 'HISA':
+							##################################################################
+							if r_proj[j] >= r_sun*(cos(glon)+sqrt(cos(glon)*cos(glon)+5.25)):
+								wamp = 0.
+							else:
+								wamp = wga*amp*(sigma_line*sqrt(8*log10(2)))*C
+							##################################################################
+							#wamp = wga*amp*sigma_line*C
+							#print "wamp = %.2e"%wamp
 						elif species == 'CO':
 							wamp = wga*amp*sigma_line
-						#elif species == 'HISA':
-						#	wamp = wga*amp*sigma_line*C#(sigma_line*sqrt(8*log(2)))*C
-
+						
 						for a in xrange(annuli):
 							if(radi[j] > rmin[a]) and (radi[j] <= rmax[a]):
-								if species == 'HISA':
-									amp = amp_frac*get_ampHISA(survey,mosaic,dy,dv,r_proj[j],ivpeak,rspec[ivpeak],l,b,sigma_line,vec[9])
-									amp = where(wcb>amp,amp,wcb)
-									wamp = wga*amp*sigma_line*C
 								cubemap[a,b,l] += wamp
 							if (radi[j] > 50.):
 								print "Distance > 50. kpc! (%.2f)"%radi[j]
-					
+						
 					wgo = 1.-wgn
 					wco_previous = wco
-					
 					spec[ivlow:ivhigh] -= (wgo*amp*line[iv1:iv2]+wgn*amp*line_inner[iv1:iv2]*sigma_line/sigma_line_inner)
-					rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
-					#rspec = fftconvolve(spec,lim,mode='same')
+					if not species == 'HISA':
+						rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
+						#rspec = fftconvolve(spec,lim,mode='same')
+					else:
+						rspec = spec
 					
 					wco = fabs(dv*sum(spec))
 					wcb = wco/sigma_line
@@ -1637,91 +1623,82 @@ def Deconvolution( (T,coord,vec) ):
 	report.close()
 
 	# Corrections for latitude
-	#cubemap = cubemap*cos(radians(lat))
 	for b in xrange(nlat):
-		cubemap[:,b,:] *= cosdec[b]
-
+		cubemap[:,b,:] *= cosb[b]
+	
 	return cubemap
 
 #################################################
 # END ROTATION CURVE
 #################################################
 
-def get_ampHISA(survey,mosaic,dy,dv,r,ivpeak,Tpeak,l,b,sigma_line,utilsConf):
+def get_ampHISA(Tpeak,Tc,Tu,dy,dv,r,sigma_line,utilsConf):
 	
-	Tcmb = float(utilsConf['tcmb'])
-	C = float(utilsConf['c']) # Costant (cm-2)
+	debug = 0	
 
-	# Get data files
-	# HI continuum
-	#pathc = getPath(surveyLogger,survey.lower()+'_hi_continuum')
-	pathc = '/afs/ifh.de/group/that/data/Radio/skymaps/continuum/'+survey.lower()+'/'
-	continuum = pathc+survey+'_'+mosaic+'_1420_MHz_I_image.fits'
-	#checkForFiles(surveyLogger,[continuum])
-	Tc, headerc = pyfits.getdata(continuum,0,header=True)
-	Tc[isnan(Tc)] = 0.
-	if survey == 'CGPS' or survey == 'VGPS':
-		Tc = Tc[0,0,:,:]
-	if survey == 'SGPS':
-		Tc = Tc[:,:]
-	# HI unabsorbed
-	#pathu = getPath(surveyLogger,'lustre_'+survey.lower()+'_hi_unabsorbed')
-	pathu = '/lustre/fs4/group/that/sf/Surveys/'+survey+'/HI_unabsorbed/'
-	unabsorbed = pathu+survey+'_'+mosaic+'_HI_unabsorbed_line.fits'
-	#checkForFiles(surveyLogger,[unabsorbed])
-	Tu, headeru = pyfits.getdata(unabsorbed,0,header=True)
-	Tu = Tu[0,:,:,:]
-	
+	deltaT = -Tpeak # Tpeak = |deltaT|, since deltaT < 0 ==> deltaT = -Tpeak
+	Tcmb = float(utilsConf['tcmb'])
+	C = float(utilsConf['c']) # Costant (cm-2)		
+	if debug: print "> deltaT = %f, Tc = %f, Tu = %f"%(deltaT,Tc,Tu)	
+
 	# Define params
 	amplitude = 0.
-	
 	theta = radians(dy) #rad
 	ds = r*tan(theta)*1e3 #pc
-		
+	
 	A1 = float(utilsConf['pc2cm'])*float(utilsConf['poverk'])
-	A2 = float(utilsConf['fn'])*ds/(C*sigma_line)#dv)
+	A2 = float(utilsConf['fn'])*ds/(sigma_line*sqrt(8*log10(2))*C)
 	A = A1*A2
+	B = Tc+float(utilsConf['p'])*Tu
 	
-	B = Tc[b,l]+float(utilsConf['p'])*Tu[ivpeak,b,l]
+	# Starting estimate
+	par_tau = fabs(1.05*A/(0.9*B)**2)
+	par_tspin = fabs(0.9*B + deltaT/(1-exp(-1.05*A)))
+	if debug: print "- A = %f, B = %f"%(A,B)
+	if debug: print "- partau = %f, partspin = %f"%(par_tau,par_tspin)
 	
-	init = [1.,10.]
-	def equations(xx):
+	init = [par_tau,par_tspin]
+	def equations(var,A,B,deltaT):
 		'''
 		Ts and tau functions - S.J.Gibson et al
 		(The Astrophysical Journal, 540:852-862, 2000)
 		'''
-		tt, T = xx
-		# Equation (6)
-		Tfunc = (T-B)/(T-B-Tpeak)
-		if Tfunc<1.:
-			Tfunc = 1.# Tbg # <------ TO JUSTIFY
-		f1 = log(Tfunc)-tt
-		# Equation (9)
-		ttfunc = A/tt	
-		if ttfunc<0.:
-			ttfunc = 0.# <------ TO JUSTIFY
-		f2 = sqrt(ttfunc)-T
-										
-		return array([f1, f2], dtype=float32)
+		tau,temp = var
 		
+		# Equation (6)
+		Ftemp = 1-(deltaT/(temp-B))
+		if Ftemp <= 0.: Ftemp = 1.#exp(-tau)
+		
+		# Equation (9)
+		if tau <= 0.: tau = 0.01
+		Ftau = A/tau
+
+		f1 = -log(Ftemp)-tau
+		f2 = sqrt(Ftau)-temp
+		
+		#print tau,temp
+		return array([f1, f2], dtype=float32)
+
 	#from scipy.optimize import fsolve
-	(tau,Ts),infodict,ier,mesg = fsolve(equations,init,full_output=1)
-	#plotFunc(tau,Ts)
-	TsMin = Tcmb
-	if Ts < TsMin:
-		Ts = TsMin
-		Tfunc = (Ts-B)/(Ts-B-Tpeak)
-		tau = log(Tfunc)
-	TsMax = Tc[b,l]+(Tpeak+Tu[ivpeak,b,l])+(float(utilsConf['p'])-1.)*Tu[ivpeak,b,l]
-	if Ts > TsMax:
-		# For Ts = TsMax, tau --> +oo
-		Ts = TsMax
-		tau = 1e4
-	if tau < 0.:
-		Ts = 0.
-		tau = log(B/(B+Tpeak))
+	(tau,Ts),infodict,ier,mesg = fsolve(equations,init,args=(A,B,deltaT),full_output=1)
 	
-	#print Ts,tau
+	# Boundary conditions
+	if Ts < Tcmb+5.: # 7-10 K due to UV radiation and CR heating
+		Ts = Tcmb+5.
+		Ftemp = 1-deltaT/(Ts-B)
+		if Ftemp <= 0.:
+			tau = par_tau
+		else:
+			tau = -log(Ftemp)
+	TsMax = Tc+(deltaT+Tu)+(float(utilsConf['p'])-1.)*Tu
+	if Ts > TsMax: # For Ts = TsMax, tau --> +oo
+		Ts = TsMax
+		tau = par_tau #100.#-log(1-deltaT/(Ts-B))
+	if tau < 0.:
+		Ts = par_tspin #0.
+		tau = par_tau #0.#-log(1-deltaT/B)	
+	
+	if debug: print "- tau = %f, Ts = %s"%(tau,Ts)
 	solution = False
 	if ier == 1:
 		solution = True
@@ -1729,9 +1706,9 @@ def get_ampHISA(survey,mosaic,dy,dv,r,ivpeak,Tpeak,l,b,sigma_line,utilsConf):
 	if not solution:
 		#print "Could not find a valid solution:"
 		#print mesg
-		amplitude = 0.
-	
-	return amplitude
+		amplitude = nan#par_tau*par_tspin
+	if debug: print "- amplitude = %f"%amplitude
+	return fabs(amplitude)
 
 #################################################
 # START COMBINE 
@@ -1864,7 +1841,7 @@ def spatialSearch( (T,vec) ):
 
 	# spatial gaussian
 	fwhm_spat = FWHM_SPATIAL/(fabs(dx)*60.) # [fwhm] = px (1 arcmin = 1/60 deg)
-	sigma_spat = fwhm_spat/sqrt(8*log(2)) # [sigma_spat] = px
+	sigma_spat = fwhm_spat/sqrt(8*log10(2)) # [sigma_spat] = px
 	L = 1.5*fwhm_spat
 	xx,yy = mgrid[-L:L,-L:L]
 	gauss_spat = 1/(2*pi*sigma_spat**2)*exp(-0.5*(xx**2+yy**2)/(sigma_spat**2) )
@@ -1875,7 +1852,7 @@ def spatialSearch( (T,vec) ):
 	#exit(0)
 
 	# HISA gaussian
-	sigma_spat_HISA = FWHM_SPATIAL_HISA/sqrt(8*log(2)) # FWHM = 5px	
+	sigma_spat_HISA = FWHM_SPATIAL_HISA/sqrt(8*log10(2)) # FWHM = 5px	
 	L = 1.5*FWHM_SPATIAL_HISA
 	xx,yy = mgrid[-L:L,-L:L]
 	gauss_spat_HISA = 1/(2*pi*sigma_spat_HISA**2)*exp(-0.5*(xx**2+yy**2)/(sigma_spat_HISA**2) )
@@ -2086,7 +2063,7 @@ def spectralSearch( (T,vec) ):
 
 	# Set up gaussians to be used for convolution
 	# spectral convolution
-	sigma_spec = FWHM_SPECTRAL/sqrt(8*log(2))
+	sigma_spec = FWHM_SPECTRAL/sqrt(8*log10(2))
 	L = 3*FWHM_SPECTRAL
 	deltax = fabs(dz)
 	n_half = floor( (L/2)/deltax )
@@ -2096,7 +2073,7 @@ def spectralSearch( (T,vec) ):
 	#plotFunc(xi,[gauss_spec])
 	
 	# spatial convolution (HISA gaussian)
-	sigma_HISA = FWHM_SPATIAL_HISA/sqrt(8*log(2))
+	sigma_HISA = FWHM_SPATIAL_HISA/sqrt(8*log10(2))
 	L = 3*FWHM_SPATIAL_HISA #3*5
 	xx,yy = mgrid[-L:L,-L:L]
 	gauss_HISA = 1/(2*pi*sigma_HISA**2)*exp(-0.5*(xx**2+yy**2)/(sigma_HISA**2) )
@@ -2104,8 +2081,8 @@ def spectralSearch( (T,vec) ):
 	#plotFunc2D(xx,yy,gauss_HISA)
 	
 	# Find sigma values for gaussian fits, in units of pixels
-	sigma_narrow = FIT_NARROW/(sqrt(8*log(2))*fabs(dz))
-	sigma_broad = FIT_BROAD/(sqrt(8*log(2))*fabs(dz))
+	sigma_narrow = FIT_NARROW/(sqrt(8*log10(2))*fabs(dz))
+	sigma_broad = FIT_BROAD/(sqrt(8*log10(2))*fabs(dz))
 
 	# Start spectral search algorithm
 	# needed for rms (see below)
@@ -2936,7 +2913,7 @@ def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc,mypath)
 				if nmsc==0: nmsc=1
 				path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec+'_split')
 				flag = '%s_line_part_%i-%i'%(species,nmsc,totmsc)
-			else:
+			elif not datatype == 'generic':
 				datatypeErrorMsg(surveyLogger,datatype,surveyEntry=survey)
 		else:
 				surveyLogger.critical("Only HI species available for "+survey+" survey.")
@@ -3194,16 +3171,16 @@ def datatypeErrorMsg(surveyLogger,datatype,surveyEntry='CGPS'):
 
 	list = []
 	if surveyEntry == 'CGPS':
-		list = ['original','clean','2D_col_density','3D_col_density','3D_integrated_line','processed','split']
+		list = ['original','clean','2D_col_density','3D_col_density','3D_integrated_line','processed','split','generic']
 	elif surveyEntry == 'SGPS' or surveyEntry=='VGPS':
-		list = ['original','clean','2D_col_density','3D_col_density','processed','split']
+		list = ['original','clean','2D_col_density','3D_col_density','processed','split','generic']
 	elif surveyEntry == 'LAB':
-		list = ['original','2D_col_density','3D_col_density','processed','split']
+		list = ['original','2D_col_density','3D_col_density','processed','split','generic']
 	else:
 		list = ['original']
 
 	surveyLogger.critical("Allowed datatypes are:")
-	for i,item in enumerate(datatype_list):
+	for i,item in enumerate(list):
 		surveyLogger.critical("%i. %s"%(i+1,item))
 	surveyLogger.critical("Your entry is: %s."%datatype)
 

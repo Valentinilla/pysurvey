@@ -62,8 +62,7 @@ class deconvolveMosaic(object):
 		#del mosaic.yarray
 		#del mosaic.zarray
 		
-		Ts = float(utilsConf['tspin'])	  	# [Excitation (or Spin) Temperature] = K (125-150)
-		C = float(utilsConf['c'])	  	# [costant] = cm-2
+		self.Ts = float(utilsConf['tspin'])	  	# [Excitation (or Spin) Temperature] = K (125-150)
 		
 		rmin,rmax,annuli = getAnnuli(glob_annuli)
 		if not (rotcurve == 'Bissantz2003' or rotcurve == 'Clemens1985'):
@@ -75,25 +74,48 @@ class deconvolveMosaic(object):
 		cubemap = zeros((annuli,mosaic.ny,mosaic.nx),dtype=float32)
 		
 		self.logger.info("Initializing parameters...")
-		self.logger.info("1) Ts = %.2f K"%Ts)
+		self.logger.info("1) Ts = %.2f K"%self.Ts)
 		self.logger.info("2) dv = %.2f km/s"%dv)
 		self.logger.info("3) Tb(min) = %.2f K, Tb(max) = %.2f K"%(amin(Tb),amax(Tb)))
 		self.logger.info("4) Rotation curve: '%s'"%rotcurve)
 		self.logger.info("5) Annuli: '%s'"%glob_annuli)
 		
 		self.logger.info("Calculating gas distribution...")
-		path2 = getPath(self.logger,'rotcurve_mpohl')
+
+		# Passing paths to the list
+		path_curve = getPath(self.logger,'rotcurve_mpohl')
+		path_conti = ''
+		path_unabs = ''
+		maxisTc = 0
+		if self.species == 'HISA':
+			path_conti = getPath(self.logger,self.survey.lower()+'_hi_continuum')
+			path_unabs = getPath(self.logger,'lustre_'+self.survey.lower()+'_hi_unabsorbed')
+			# HI continuum
+			continuum = path_conti+self.survey+'_'+self.mosaic+'_1420_MHz_I_image.fits'
+			Tc, headerc = pyfits.getdata(continuum,0,header=True)
+			Tc[isnan(Tc)] = 0.
+			Tc[Tc<0.] = 0.
+			if self.survey == 'CGPS' or self.survey == 'VGPS':
+				Tc = Tc[0,0,:,:]
+				maxisTc = maxis-1
+			if self.survey == 'SGPS':
+				Tc = Tc[:,:]
+				maxisTc = maxis-1
+			# HI unabsorbed
+			unabsorbed = path_unabs+self.survey+'_'+self.mosaic+'_HI_unabsorbed_line.fits'
+			Tu, headeru = pyfits.getdata(unabsorbed,0,header=True)
+			Tu = Tu[0,:,:,:]
+
+		paths = [path_curve,path_conti,path_unabs]
 		
 		list = []
 		if maxis == 1:
 			#list = [self.species,lon,vel,dv,path2,utilsConf,rmin,rmax,rotcurve,maxis]
-			#list = [mosaic,path2,utilsConf,rmin,rmax,rotcurve,maxis]#,self.logger]
-			#list = [mosaic,path2,rmin,rmax,rotcurve,maxis]#,self.logger]
+			list = [path_curve,self.survey,self.mosaic,self.species,lon,vel,mosaic.dy,dv,utilsConf,rmin,rmax,rotcurve,maxis]
 			coord = lat
 		elif maxis == 2:
 			#list = [self.species,lat,vel,dv,path2,utilsConf,rmin,rmax,rotcurve,maxis]
-			list = [1,self.survey,self.mosaic,self.species,lat,vel,mosaic.dy,dv,path2,utilsConf,rmin,rmax,rotcurve,maxis]
-			#list = [mosaic,path2,rmin,rmax,rotcurve,maxis]#,self.logger]
+			list = [path_curve,self.survey,self.mosaic,self.species,lat,vel,mosaic.dy,dv,utilsConf,rmin,rmax,rotcurve,maxis]
 			coord = lon
 		else:
 			self.logger.critical("ERROR in splitting Tb!")
@@ -112,19 +134,34 @@ class deconvolveMosaic(object):
 		self.logger.info("Running on %i cpu(s)"%(ncpu))
 		if ncpu > 1:
 			import itertools		
-			arrays = array_split(Tb, ncpu, axis=maxis)
+			#arrays = array_split(Tb, ncpu, axis=maxis)
+			aTb = array_split(Tb, ncpu, axis=maxis)
+			if self.species == 'HISA':
+				aTc = array_split(Tc, ncpu, axis=maxisTc)
+				aTu = array_split(Tu, ncpu, axis=maxis)
+			else:
+				aTc = 0.*arange(ncpu)
+				aTu = 0.*arange(ncpu)
+			#print Tb.shape[maxis],Tu.shape[maxis],Tc.shape[maxisTc]
 			coords = array_split(coord, ncpu, axis=0)
 			pool = multiprocessing.Pool(processes = ncpu)
-			results = pool.map(Deconvolution, itertools.izip(arrays,coords,itertools.repeat(list)))
+			#results = pool.map(Deconvolution, itertools.izip(arrays,coords,itertools.repeat(list)))
+			results = pool.map(Deconvolution, itertools.izip(aTb,aTc,aTu,coords,itertools.repeat(list)))
 			pool.close()
 			pool.join()
 			cubemap = concatenate(results,axis=maxis)
-			del arrays
+			#del arrays
 			del coords
 			del list
 			del results
 		else:
-			cubemap = Deconvolution( (Tb,coord,list) )
+			if self.species == 'HISA':
+				aTc = Tc
+				aTu = Tu
+			else:
+				aTc = 0.
+				aTu = 0.
+			cubemap = Deconvolution( (Tb,aTc,aTu,coord,list) )
 			
 		if HI_all_OR: cubemap = cubemap*1e-20
 		
@@ -167,7 +204,6 @@ class deconvolveMosaic(object):
 		newheader.add_history('Rotation curve: %s'%rotcurve)
 		newheader.add_history('Annuli: %s'%glob_annuli)
 		if not self.species == 'CO':
-			self.Ts = Ts
 			newheader.add_history('Spin temperature: %s K'%self.Ts)
 
 		# Output file

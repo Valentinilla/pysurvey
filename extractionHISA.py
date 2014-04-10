@@ -84,47 +84,51 @@ class extractionHISA(object):
 			if analysis == 'spectral':
 				cubemap = spectralSearch( (Tb,list) )
 
-		newheader = pyfits.Header()
-		newheader["ctype1"] = ("GLON-CAR","Coordinate type")
-		newheader["crval1"] = (obs.keyword["crval1"],"Galactic longitude at reference pixel")
-		newheader["crpix1"] = (obs.keyword["crpix1"],"Reference pixel")
-		newheader["cdelt1"] = (obs.keyword["cdelt1"],"Longitude increment")
-		newheader["crota1"] = (obs.keyword["crota1"],"Longitude rotation")
-		newheader["cunit1"] = ("deg","Unit type")
+		results = zeros(cubemap.shape,dtype='b')
+		results = where(cubemap<spatialConf('min_hisa'),0,1)
 		
-		newheader["ctype2"] = ("GLAT-CAR","Coordinate type")
-		newheader["crval2"] = (obs.keyword["crval2"],"Galactic latitude at reference pixel")
-		newheader["crpix2"] = (obs.keyword["crpix2"],"Reference pixel")
-		newheader["cdelt2"] = (obs.keyword["cdelt2"],"Latitude increment")
-		newheader["crota2"] = (obs.keyword["crota2"],"Latitude rotation")
-		newheader["cunit2"] = ("deg","Unit type")
-
-		newheader["ctype3"] = (obs.keyword["ctype3"],"Coordinate type")
-		newheader["crval3"] = (obs.keyword["crval3"],"Velocity at reference pixel")
-		newheader["crpix3"] = (obs.keyword["crpix3"],"Reference pixel")
-		newheader["cdelt3"] = (obs.keyword["cdelt3"],"Velocity increment")
-		newheader["crota3"] = (obs.keyword["crota3"],"Velocity rotation")
-		newheader["cunit3"] = ("m/s","Unit type")
-
-		newheader['bunit'] = (obs.keyword["bunit"],"Map units")
-		newheader['datamin'] = (amin(cubemap),"Min value")
-		newheader['datamax'] = (amax(cubemap),"Max value")
+		#newheader = pyfits.Header()
+		#newheader["ctype1"] = ("GLON-CAR","Coordinate type")
+		#newheader["crval1"] = (obs.keyword["crval1"],"Galactic longitude at reference pixel")
+		#newheader["crpix1"] = (obs.keyword["crpix1"],"Reference pixel")
+		#newheader["cdelt1"] = (obs.keyword["cdelt1"],"Longitude increment")
+		#newheader["crota1"] = (obs.keyword["crota1"],"Longitude rotation")
+		#newheader["cunit1"] = ("deg","Unit type")
 		
-		newheader['minfil'] = unravel_index(argmin(cubemap),cubemap.shape)[0]
-		newheader['mincol'] = unravel_index(argmin(cubemap),cubemap.shape)[1]
-		newheader['minrow'] = unravel_index(argmin(cubemap),cubemap.shape)[2]
-		newheader['maxfil'] = unravel_index(argmax(cubemap),cubemap.shape)[0]
-		newheader['maxcol'] = unravel_index(argmax(cubemap),cubemap.shape)[1]
-		newheader['maxrow'] = unravel_index(argmax(cubemap),cubemap.shape)[2]
+		#newheader["ctype2"] = ("GLAT-CAR","Coordinate type")
+		#newheader["crval2"] = (obs.keyword["crval2"],"Galactic latitude at reference pixel")
+		#newheader["crpix2"] = (obs.keyword["crpix2"],"Reference pixel")
+		#newheader["cdelt2"] = (obs.keyword["cdelt2"],"Latitude increment")
+		#newheader["crota2"] = (obs.keyword["crota2"],"Latitude rotation")
+		#newheader["cunit2"] = ("deg","Unit type")
 
-		newheader["object"] = ("Mosaic "+self.mosaic,self.survey+" Mosaic")
+		#newheader["ctype3"] = (obs.keyword["ctype3"],"Coordinate type")
+		#newheader["crval3"] = (obs.keyword["crval3"],"Velocity at reference pixel")
+		#newheader["crpix3"] = (obs.keyword["crpix3"],"Reference pixel")
+		#newheader["cdelt3"] = (obs.keyword["cdelt3"],"Velocity increment")
+		#newheader["crota3"] = (obs.keyword["crota3"],"Velocity rotation")
+		#newheader["cunit3"] = ("m/s","Unit type")
+
+		#newheader['bunit'] = (obs.keyword["bunit"],"Map units")
+		#newheader['datamin'] = (amin(cubemap),"Min value")
+		#newheader['datamax'] = (amax(cubemap),"Max value")
+		
+		#newheader['minfil'] = unravel_index(argmin(cubemap),cubemap.shape)[0]
+		#newheader['mincol'] = unravel_index(argmin(cubemap),cubemap.shape)[1]
+		#newheader['minrow'] = unravel_index(argmin(cubemap),cubemap.shape)[2]
+		#newheader['maxfil'] = unravel_index(argmax(cubemap),cubemap.shape)[0]
+		#newheader['maxcol'] = unravel_index(argmax(cubemap),cubemap.shape)[1]
+		#newheader['maxrow'] = unravel_index(argmax(cubemap),cubemap.shape)[2]
+
+		#newheader["object"] = ("Mosaic "+self.mosaic,self.survey+" Mosaic")
 		
 
 		path = getPath(self.logger,'lustre_'+self.survey.lower()+'_hisa')
 		# Output file
-		results = pyfits.PrimaryHDU(cubemap,obs.keyword)
+		#results = pyfits.PrimaryHDU(cubemap,obs.keyword)
 		self.logger.info("Writing data to a fits file...")
-		results.writeto(path+self.survey+'_'+self.mosaic+'_'+analysis+'_search.fits', output_verify='fix')
+		#results.writeto(path+self.survey+'_'+self.mosaic+'_'+analysis+'_search.fits', output_verify='fix')
+		open(path+self.survey+'_'+self.mosaic+'_'+analysis+'_search.dat', 'wb').write(results)
 		self.logger.info("Done")
 
 

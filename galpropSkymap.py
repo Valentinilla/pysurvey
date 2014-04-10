@@ -171,23 +171,37 @@ class GalpropSkymap(object):
 		obs.keyword['maxcol'] = unravel_index(argmax(skymap),skymap.shape)[1]
 		obs.keyword['maxrow'] = unravel_index(argmax(skymap),skymap.shape)[2]
 
-		#if 'history' in obs.keyword:
-		#	for i in xrange(len(obs.keyword['history'])):
-		#		keyword2['history'] = obs.keyword['history'][i]
-
+		if 'history' in obs.keyword:
+			for i in xrange(len(obs.keyword['history'])):
+				keyword2['history'] = obs.keyword['history'][i]
+		
 		# Output file			
+
+		# Create a Table with the annuli boundaries
+		rmin,rmax,annuli = getAnnuli(glob_annuli)
+		col1 = pyfits.Column(name='Rmin', format='1E', unit='kpc', array=array(rmin))
+		col2 = pyfits.Column(name='Rmax', format='1E', unit='kpc', array=array(rmax))
+		cols = pyfits.ColDefs([col1,col2])
+		tbl = pyfits.new_table(cols)
+		tbl.name = "BINS"
+
+		# Writing low resolution map
 		results = pyfits.PrimaryHDU(skymap,obs.keyword)
 		self.logger.info("Writing low resolution map in...")
-		results.writeto(self.filename, output_verify='fix')
+				
+		thdulist = pyfits.HDUList([results,tbl])
+		thdulist.writeto(self.filename, output_verify='fix')
 		self.logger.info("%s"%path)
 		self.logger.info("Done")
 
+		# Writing final Galprop map
 		temp = self.filename.split('_')[-2]
-		
 		self.logger.info("Writing final Galprop map in...")
 		results2 = pyfits.PrimaryHDU(cubemap,keyword2)
 		galfile = path+'/skymap_'+self.species.lower()+'_'+self.survey.lower()+'_rbands_r9_res'+str(res)+'_'+temp+'.fits'
-		results2.writeto(galfile, output_verify='fix')
+		
+		thdulist2 = pyfits.HDUList([results2,tbl])
+		thdulist2.writeto(galfile, output_verify='fix')
 		self.logger.info("%s"%path)
 		self.logger.info("Done")
 		

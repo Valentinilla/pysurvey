@@ -45,9 +45,10 @@ class combineMosaics(object):
 			tlis = []
 			if HI_all_OR:
 				if self.survey == 'CGPS':
-					list1 = ['MV1','MV2','MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
+					#list1 = ['MV1','MV2','MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
+					list1 = ['MY1','MY2','MA1','MA2','MB1','MB2']
 					list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2','MH1','MH2']
-					list3 = ['MIJ1','MIJ2','MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
+					list3 = ['MIJ1','MIJ2']#,'MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
 					tlist = list1+list2+list3
 				
 				elif self.survey == 'SGPS':
@@ -309,12 +310,12 @@ class combineMosaics(object):
 			newheader['object'] = (self.survey+" Skymap",self.survey+" Mosaic")
 		else:
 			newheader['object'] = ("Mosaic "+self.mosaic,self.survey+" Mosaic")
-			newheader['minfil'] = unravel_index(argmin(skymap),skymap.shape)[0]
-			newheader['mincol'] = unravel_index(argmin(skymap),skymap.shape)[1]
-			newheader['minrow'] = unravel_index(argmin(skymap),skymap.shape)[2]
-			newheader['maxfil'] = unravel_index(argmax(skymap),skymap.shape)[0]
-			newheader['maxcol'] = unravel_index(argmax(skymap),skymap.shape)[1]
-			newheader['maxrow'] = unravel_index(argmax(skymap),skymap.shape)[2]
+		newheader['minfil'] = unravel_index(argmin(skymap),skymap.shape)[0]
+		newheader['mincol'] = unravel_index(argmin(skymap),skymap.shape)[1]
+		newheader['minrow'] = unravel_index(argmin(skymap),skymap.shape)[2]
+		newheader['maxfil'] = unravel_index(argmax(skymap),skymap.shape)[0]
+		newheader['maxcol'] = unravel_index(argmax(skymap),skymap.shape)[1]
+		newheader['maxrow'] = unravel_index(argmax(skymap),skymap.shape)[2]
 
 		if 'history' in hdu1.header:
 			for i in xrange(len(hdu1.header['history'])):
@@ -328,7 +329,7 @@ class combineMosaics(object):
 		path,key = '',''
 		if self.mosaic == 'skymap':
 			path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower())
-			skymap_name = path+'/skymaps/%s_G%.2f%s%.2f.fits'%(self.survey,crval1,latsign,crval2)
+			skymap_name = path+'skymaps/%s_G%.2f%s%.2f.fits'%(self.survey,crval1,latsign,crval2)
 		else:
 			path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower()+'_column_density')
 			if HI_all_OR:
