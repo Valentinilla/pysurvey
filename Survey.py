@@ -8,6 +8,7 @@ from Mosaic import *
 from makeMosaic import *
 from makeCorrection import *
 from combineMosaics import *
+from combineSurveys import *
 from galpropSkymap import *
 from deconvolveMosaic import *
 from extractionHISA import *
@@ -250,6 +251,16 @@ class Survey:
 		try:
 			self.skyregion = combineMosaics(self.surveyConf,mosaic,species,type,dim)
 			self.logger.info(self.ret.subn(', ',str(self.skyregion))[0])
+			
+		except(FileNotFound):
+			self.logger.critical("One or more needed files do not exist")
+			return
+	
+	def combineSurveys(self,surveylist,mosaiclist,species='HI',res=0.125):
+		
+		try:
+			self.sky = combineSurveys(surveylist,mosaiclist,species,res)
+			self.logger.info(self.ret.subn(', ',str(self.sky))[0])
 			
 		except(FileNotFound):
 			self.logger.critical("One or more needed files do not exist")

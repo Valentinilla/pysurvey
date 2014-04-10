@@ -101,8 +101,8 @@ class Mosaic(object):
 		
 		self.observation = self.observation.astype(float32)
 
-		self.zmin = 0
-		self.zmax = 0
+		self.zmin = 1
+		self.zmax = self.nz
 		
 		if self.type == glob_Tb or self.type == glob_ITb:
 			self.observation[self.observation < -1e4] = 0.

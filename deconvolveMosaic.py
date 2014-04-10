@@ -105,8 +105,6 @@ class deconvolveMosaic(object):
 			unabsorbed = path_unabs+self.survey+'_'+self.mosaic+'_HI_unabsorbed_line.fits'
 			Tu, headeru = pyfits.getdata(unabsorbed,0,header=True)
 			Tu = Tu[0,:,:,:]
-
-		paths = [path_curve,path_conti,path_unabs]
 		
 		list = []
 		if maxis == 1:

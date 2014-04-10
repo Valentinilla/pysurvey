@@ -4,6 +4,7 @@ from Mosaic import *
 from makeMosaic import *
 from makeCorrection import *
 from combineMosaics import *
+from combineSurveys import *
 from galpropSkymap import *
 from deconvolveMosaic import *
 from extractionHISA import *

@@ -45,10 +45,9 @@ class combineMosaics(object):
 			tlis = []
 			if HI_all_OR:
 				if self.survey == 'CGPS':
-					#list1 = ['MV1','MV2','MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
-					list1 = ['MY1','MY2','MA1','MA2','MB1','MB2']
+					list1 = ['MV1','MV2','MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
 					list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2','MH1','MH2']
-					list3 = ['MIJ1','MIJ2']#,'MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
+					list3 = ['MIJ1','MIJ2','MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
 					tlist = list1+list2+list3
 				
 				elif self.survey == 'SGPS':
@@ -59,7 +58,7 @@ class combineMosaics(object):
 					tlist = list1[::-1]#+list2
 
 				elif self.survey == 'VGPS':#VGPS_G000_HI_line_image.fits
-					list1 = ['G000','G017','G021','G025','G029','G033','G037']
+					list1 = ['G017','G021','G025','G029','G033','G037']
 					list2 = ['G041','G045','G049','G053','G057','G061','G065']
 					tlist = list1+list2
 
@@ -74,7 +73,7 @@ class combineMosaics(object):
 					list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2']
 					tlist = list1+list2
 					
-			# this configuration (for m --> for f) sort lists in the right way
+			# this sequence (for m --> for f) sorts lists in the right way
 			for m in tlist:
 				for f in os.listdir(path):
 					if f.startswith('%s_%s_%s'%(self.survey,m,flag1)):
@@ -279,6 +278,16 @@ class combineMosaics(object):
 		#print crval1,crpix1
 		#print crval2,crpix2
 		#exit(0)
+
+		if self.survey == 'CGPS' and self.mosaic == 'skymap':
+			radius = 170 #px
+			x,y = 7113,287
+			y1 = y-radius
+			y2 = y+radius
+			x1 = x-radius
+			x2 = x+radius
+			skymap[4:,y1:y2,x1:x2] = patching(skymap,x1,x2,y1,y2,4,9,location='left')
+
 
 		# Store results
 		newheader = pyfits.Header()

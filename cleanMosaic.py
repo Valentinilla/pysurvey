@@ -60,7 +60,8 @@ class cleanMosaic(object):
 		# free memory
 		del obs.observation
 		del obs.zarray
-		
+		#print Tb.shape,zmin,zmax
+		#exit(0)
 		if self.species == 'HI':
 
 			# Data correction
@@ -75,14 +76,22 @@ class cleanMosaic(object):
 				pathc = getPath(self.logger, self.survey.lower()+'_hi_continuum')
 				continuum = pathc+self.survey+'_'+self.mosaic+'_1420_MHz_I_image.fits'
 				checkForFiles(self.logger,[continuum])
-				cdata, header = pyfits.getdata(continuum, 0, header = True)
-				#if self.survey == 'CGPS': cdata = data[0,0,:,:]
-				#if self.survey == 'SGPS': cdata = data[:,:]
-
+				data, header = pyfits.getdata(continuum, 0, header = True)
+				if self.survey == 'CGPS': cdata = data[0,0,:,:]
+				if self.survey == 'VGPS':
+					long = int(self.mosaic.split('G0')[1])
+					if long <= 45:
+						cdata = data[0,0,247:-248,:]
+					elif long <= 61:
+						cdata = data[0,0,52:-53,:]
+					elif long == 65:
+						cdata = data[0,0,52:-53,50:-50]
+				
 				self.logger.info("Removing artifacts due to continuum subtraction...")
-				if ncpu > 1 and not self.survey == 'VGPS':
+				if ncpu > 1:
 					import itertools
 					samples_list = array_split(Tb[0,zmin:zmax,:,:], ncpu)
+					#print Tb.shape, cdata.shape
 					pool = multiprocessing.Pool(processes=ncpu)
 					results = pool.map(correct_continuum, itertools.izip(samples_list, itertools.repeat(cdata)))
 					pool.close()
@@ -101,7 +110,7 @@ class cleanMosaic(object):
 				Tb[0,zmin:zmax,:,:] = correct_continuum2( (Tb[0,zmin:zmax,:,:],vec) )
 
 			self.logger.info("Smoothing negative pixels...")
-			if ncpu > 1 and not self.survey == 'VGPS':
+			if ncpu > 1:
 				samples_list = array_split(Tb[0,zmin:zmax,:,:], ncpu)
 				pool = multiprocessing.Pool(processes=ncpu)
 				results = pool.map(correct_data, samples_list)
@@ -112,7 +121,7 @@ class cleanMosaic(object):
 				del results
 			else:
 				Tb[0,zmin:zmax,:,:] = correct_data(Tb[0,zmin:zmax,:,:])
-
+			Tb[Tb<-50.] = 0.
 		elif self.species == 'CO':
 					
 			self.logger.info("Applying Moment Mask method (T.M.Dame)...")

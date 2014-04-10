@@ -133,12 +133,22 @@ class GalpropSkymap(object):
 		
 		i1,i2 = indexes(x1,x2,ix1,ix2,sxarray,nxn)
 		j1,j2 = indexes(y1,y2,iy1,iy2,syarray,nyn)
+				
+		data[data==0.]=-999
+		# Broadcast data in skymap excluding bad pixels
+		if self.species == 'CO':
+			skymap[:,j1+5:j2-1,i1+2:i2-15] = data[:,5:nyn-1,2:nxn-15]
+		else:	
+			if self.survey == 'CGPS':
+				#skymap[:,j1+1:j2-1,i1+11:i2] = data[:,1:nyn-1,11:]
+				skymap[:,j1+1:j2-1,i1+11+25:i2] = data[:,1:nyn-1,11+25:]
+			elif self.survey == 'SGPS':
+				skymap[:,j1:j2,i1+4:i2-1] = data[:,:,4:nxn-1]
+			else:
+				skymap[:,j1:j2,i1:i2] = data
 		
-		# Broadcast data in skymap
-		skymap[:,j1:j2,i1:i2] = data
-
 		# Open original Galprop map
-		if self.species == 'HI' or self.species == 'HI_unabsorbed': flag = 'hi'
+		if self.species == 'HI' or self.species == 'HI_unabsorbed' or self.species == 'HISA': flag = 'hi'
 		if self.species == 'CO': flag = 'co'
 		path2 = '/afs/ifh.de/group/that/work-sf/survey/batch/survey_skymaps/'+flag
 		file2 = path2+'/skymap_'+flag+'_galprop_rbands_r9_res'+str(res)+'.fits'
@@ -149,6 +159,9 @@ class GalpropSkymap(object):
 
 		cubemap = zeros(observation2.shape,dtype=float32)
 		cubemap = where(skymap==0.,observation2,skymap)
+
+		skymap[skymap==-999] = 0.
+		cubemap[cubemap==-999] = 0.
 				
 		# Update keywords
 		obs.keyword['naxis1'] = nxsky #nxn

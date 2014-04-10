@@ -39,7 +39,7 @@ class makeMosaic(object):
 		self.logger.info("Getting the data from...")
 		self.logger.info("%s"%obs.filename)
 		
-		if not (self.survey == 'CGPS' or self.survey == 'SGPS'):
+		if not (self.survey == 'CGPS' or self.survey == 'SGPS' or self.survey == 'VGPS'):
 
 			self.mosaic = mosaicConf['mosaic']
 			lon = mosaicConf['lon'] # deg
@@ -183,7 +183,6 @@ class makeMosaic(object):
 				ydim = Tb.shape[2]		
 
 				#print Tb.shape[1],ydim,xdim
-				
 				for line in lines:
 					na = float(line.split('\n')[0].split()[0]) # HISA region
 					nb = float(line.split('\n')[0].split()[1]) # HISA location
