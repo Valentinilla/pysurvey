@@ -187,48 +187,21 @@ class makeMosaic(object):
 			dv = fabs(obs.dz/1000.) # [velocity] = km s-1
 			vel = obs.zarray/1000.
 			del obs.zarray
-			#print where(Tb[0,:,:,:]<-300)
-
-			#getRMS(self.logger,Tb[0,:,:,:],obs.zmax)
-			myarray = find_region(Tb[0,130,:,:])
-			hdu = pyfits.PrimaryHDU(myarray)
-			hdu.writeto('corrected_gauss.fits')
-			exit(0)
-			
-			if(0):
-				
-				flag = where(Tb[0,:,:,:]<0,True,False).flatten()
-				
-				#mask = ma.masked_less(Tb[0,iz,:,:],0)
-				#print mask
-				data = Tb[0,:,:,:]
-				dim = len(data.shape)
-				slcs = [slice(None)]*dim
-				
-				while any(~flag): # as long as there are any False's in flag
-					for i in range(dim): # do each axis
-						print i
-						# make slices to shift view one element along the axis
-						slcs1 = slcs[:]
-						slcs2 = slcs[:]
-						slcs1[i] = slice(0, -1)
-						slcs2[i] = slice(1, None)
-						# replace from the right
-						repmask = logical_and(~flag[slcs1], flag[slcs2])
-						data[slcs1][repmask] = data[slcs2][repmask]
-						flag[slcs1][repmask] = True
-						# replace from the left
-						repmask = logical_and(~flag[slcs2], flag[slcs1])
-						data[slcs2][repmask] = data[slcs1][repmask]
-						flag[slcs2][repmask] = True
-				exit(0)
-
-
+						
 			if self.species == 'HI' or self.species == 'HISA':
+
+				# Using Multiprocessing if enough cpus are available
+				import multiprocessing
+				samples_list = array_split(Tb[0,obs.zmin:obs.zmax,:,:], multiprocessing.cpu_count())
+				self.logger.info("Running on %i cpu(s)"%(multiprocessing.cpu_count()))
+				pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
+				#import itertools
+				#results = pool.map(correct_data, itertools.izip(itertools.repeat(logger),samples_list))
+				results = pool.map(correct_data, samples_list)
+				del samples_list
+				Tb[0,obs.zmin:obs.zmax,:,:] = concatenate(results).astype(Tb.dtype)
+				del results
 				
-				#filter1 = where(Tb < 0.)
-				#Tb[filter1] = 0.
-					
 				path_data = getPath(self.logger, key="cgps_hisa_dat")
 				datafile = path_data+self.survey+'_'+self.mosaic+'_HISA.dat'		
 				checkForFiles(self.logger,[datafile])
@@ -258,7 +231,7 @@ class makeMosaic(object):
 						Tb[0,m,l,k] = nc #Tb[0,m,l,k]-nd
 						#if type == 'amplitude':
 						#	Tb[0,m,l,k] = nd #Tb[0,m,l,k]-nd
-											
+				file = "/lustre/fs4/group/that/sf/Surveys/CGPS/HI/corrected_tot2.fits"
 			elif self.species == 'CO':
 				
 				self.logger.info("Applying Moment Mask method (T.M.Dame)...")
