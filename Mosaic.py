@@ -172,85 +172,75 @@ class Mosaic(object):
 		# Open the file and set the variables
 		self.filename = filename
 		f = pyfits.open(filename)
-		hdu = f[0]
-		self.msc_hdu = hdu
+		self.keyword = f[0].header
 		
-		if self.type == glob_Tb and self.survey == 'CGPS':
-			self.msc_bitpix = hdu.header['bitpix']
-			self.msc_bzero = hdu.header['bzero']
-			self.msc_bscale = hdu.header['bscale']
-				
-		self.msc_size = hdu.header['NAXIS']	# 4
-		self.msc_lon = hdu.header['NAXIS1']	# 1024
-		self.msc_lat = hdu.header['NAXIS2']	# 1024
-		self.msc_ref_lon = float(hdu.header['CRVAL1']) # deg (GLON-CAR)
-		self.msc_del_lon = float(hdu.header['CDELT1']) # -4.9e-3 deg
-		self.msc_ind_lon = float(hdu.header['CRPIX1']) # 513 px
-		self.msc_ref_lat = float(hdu.header['CRVAL2']) # deg
-		self.msc_del_lat = float(hdu.header['CDELT2']) # 4.9e-3 deg
-		self.msc_ind_lat = float(hdu.header['CRPIX2']) # 513 px
-		
-		if self.survey == 'LAB' or self.survey == 'CGPS':
-			self.msc_rot_lon = float(hdu.header['CROTA1']) # 0.0
-			self.msc_rot_lat = float(hdu.header['CROTA2']) # 0.0
-		
-		if load and (self.survey == 'Dame' or self.survey == 'Galprop'):
-			self.msc_rot_lon = float(hdu.header['CROTA1']) # 0.0
-			self.msc_rot_lat = float(hdu.header['CROTA2']) # 0.0
-		
-		self.lon_array=self.msc_ref_lon+self.msc_del_lon*(arange(self.msc_lon)+1.-self.msc_ind_lon)
-		self.lat_array=self.msc_ref_lat+self.msc_del_lat*(arange(self.msc_lat)+1.-self.msc_ind_lat)
-		
-		if self.msc_size > 2:
-			if self.survey == 'LAB':
-				self.msc_area = hdu.header['object']
-				self.msc_band = hdu.header['freq0'] # 1.4204057E+09 / rest frequency in Hz
-			if self.survey == 'CGPS':
-				self.msc_area = hdu.header['adc_area']
-				self.msc_band = hdu.header['adc_band'] # HI,CO
-			if self.survey == 'SGPS':
-				self.msc_area = hdu.header['object']
-				self.msc_band = hdu.header['restfreq'] # 1.4204057E+09 / rest frequency in Hz
+		# Bscale and bzero should be read as first keywords	
+		if ('BSCALE' and 'BZERO') in self.keyword:	
+			self.bscale = self.keyword['bscale']
+			self.bzero = self.keyword['bzero']
 
-			if not self.survey == 'Galprop':			
-				self.msc_vel = hdu.header['NAXIS3'] # 272
-				self.msc_ref_vel = float(hdu.header['CRVAL3']/1000.) #convert to km/s
-				self.msc_del_vel = float(hdu.header['CDELT3']/1000.) #convert to km/s
-				self.msc_ind_vel = float(hdu.header['CRPIX3']) # 145 px
-				if self.survey == 'LAB' or self.survey == 'CGPS':
-					self.msc_rot_vel = float(hdu.header['CROTA3']) # 0.0
-				self.vel_array=self.msc_ref_vel+self.msc_del_vel*(arange(self.msc_vel)+\
-						1.-self.msc_ind_vel)
-			else:
-				self.msc_ring = hdu.header['NAXIS3']
-				self.msc_ref_ring = float(hdu.header['CRVAL3'])
-				self.msc_del_ring = float(hdu.header['CDELT3'])
-				self.msc_ind_ring = float(hdu.header['CRPIX3'])
-				self.ring_array=self.msc_ref_ring+self.msc_del_ring*(arange(self.msc_ring)+\
-						1.-self.msc_ind_ring)
+		if not('CROTA1' or 'CROTA2') in self.keyword:
+			self.keyword['CROTA1'] = 0.0
+			self.keyword['CROTA2'] = 0.0
 		
-		if self.msc_size > 3:
-			if self.survey == 'CGPS' or self.survey == 'SGPS':
-				self.msc_pol = hdu.header['NAXIS4']	# 1, polarization
-				
-		self.observation = hdu.data
+		# Build arrays
+		try:
+			self.x,self.y = self.keyword['CRVAL1'],self.keyword['CRVAL2']
+			self.dx,self.dy = self.keyword['CDELT1'],self.keyword['CDELT2']
+			self.x_px,self.y_px = self.keyword['CRPIX1'],self.keyword['CRPIX2']
+			self.nx,self.ny = self.keyword['NAXIS1'],self.keyword['NAXIS2']
+			self.xarray = self.x + self.dx * (arange(self.nx) + 1. - self.x_px) #self.lon_array
+			self.yarray = self.y + self.dy * (arange(self.ny) + 1. - self.y_px) #self.lat_array
+		except:
+			self.logger.critical("Some keyword missing. Coordinate arrays cannot be built.")
+		
+		if 'ADC_AREA' in self.keyword:
+			self.object = self.keyword['ADC_AREA']
+			del self.keyword['ADC_AREA']
+			self.keyword['OBJECT'] = self.object	
+		if 'FREQ0' in self.keyword:
+			self.band = self.keyword['FREQ0']
+			del self.keyword['FREQ0']
+			self.keyword['BAND'] = self.band
+		elif 'RESTFREQ' in self.keyword:
+			self.band = self.keyword['RESTFREQ']
+			del self.keyword['RESTFREQ']
+			self.keyword['BAND'] = self.band
+		elif 'ADC_BAND' in self.keyword:
+			self.band = self.keyword['ADC_BAND']
+			del self.keyword['ADC_BAND']
+			self.keyword['BAND'] = self.band
+		
+		if self.keyword['NAXIS'] > 2:
+			if not 'CROTA3' in self.keyword:
+				self.keyword['CROTA3'] = 0.0
+			# Build array
+			try:
+				self.z = self.keyword['CRVAL3']
+				self.dz = self.keyword['CDELT3']
+				self.z_px = self.keyword['CRPIX3']
+				self.nz = self.keyword['NAXIS3']
+				self.zarray = self.z + self.dz * (arange(self.nz) + 1. - self.z_px)
+			except:
+				self.logger.critical("Some keyword missing. 3rd axis array cannot be built.")
+		
+		self.observation = f[0].data
 		
 		if self.type == glob_Tb or self.type == glob_ITb:	
 			filter1 = self.observation < -1e4
 			filter2 = isnan(self.observation)
 			self.observation[filter1] = 0.
 			self.observation[filter2] = 0.
-			if self.msc_size > 3:
+			if self.keyword['NAXIS'] > 3:
 				if self.survey == 'CGPS':
-					if self.msc_band == 'HI':	
-						self.observation[:,:18,:,:] = 0.
-						self.observation[:,271,:,:] = 0.
-					#if self.msc_band == 'CO':	
-						#self.observation[:,:23,:,:] = 0.
-						#self.observation[:,256:,:,:] = 0.
+					if 'BAND' in self.keyword:
+						if self.keyword['BAND'] == 'HI':	
+							self.observation[:,:18,:,:] = 0.
+							self.observation[:,271,:,:] = 0.
+						#if self.keyword['BAND'] == 'CO':	
+							#self.observation[:,:23,:,:] = 0.
+							#self.observation[:,256:,:,:] = 0.
 		
-		
-		self.header = hdu.header
 		self.mosaic = mosaicConf['mosaic']
 		if not load:
 			self._inputs = 'Created '+self.survey+' Mosaic object '+self.species+' '+self.type

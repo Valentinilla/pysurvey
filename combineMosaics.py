@@ -127,26 +127,24 @@ class combineMosaics(object):
 		
 		# Store results
 		newheader = pyfits.Header()
-		newheader.update(key="ctype1", value="GLON-CAR", comment="Coordinate type")
-		newheader.update(key="crval1", value=crval1, comment="Galactic longitude of reference pixel")
-		newheader.update(key="crpix1", value=crpix1, comment="Reference pixel of lon")
-		newheader.update(key="cdelt1", value=msc_del_lon, comment="Longitude increment")
-		newheader.update(key="crota1", value=msc_rot_lon, comment="Longitude rotation")
-		newheader.update(key="cunit1", value="deg", comment="Unit type")
+		newheader["ctype1"] = ("GLON-CAR","Coordinate type")
+		newheader["crval1"] = (crval1,"Galactic longitude of reference pixel")
+		newheader["crpix1"] = (crpix1,"Reference pixel of lon")
+		newheader["cdelt1"] = (msc_del_lon,"Longitude increment")
+		newheader["crota1"] = (msc_rot_lon,"Longitude rotation")
+		newheader["cunit1"] = ("deg","Unit type")
 		
-		newheader.update(key="ctype2", value="GLAT-CAR", comment="Coordinate type")
-		newheader.update(key="crval2", value=crval2, comment="Galactic latitude of reference pixel")
-		newheader.update(key="crpix2", value=crpix2, comment="Reference pixel of lat")
-		newheader.update(key="cdelt2", value=msc_del_lat, comment="Latitude increment")
-		newheader.update(key="crota2", value=msc_rot_lat, comment="Latitude rotation")
-		newheader.update(key="cunit2", value="deg", comment="Unit type")
+		newheader["ctype2"] = ("GLAT-CAR","Coordinate type")
+		newheader["crval2"] = (crval2,"Galactic latitude of reference pixel")
+		newheader["crpix2"] = (crpix2,"Reference pixel of lat")
+		newheader["cdelt2"] = (msc_del_lat,"Latitude increment")
+		newheader["crota2"] = (msc_rot_lat,"Latitude rotation")
+		newheader["cunit2"] = ("deg","Unit type")
 		
-		newheader.update(key="bunit", value=msc_bunit, comment="Map units")
-		
-		newheader.update(key="datamin", value=amin(skymap))
-		newheader.update(key="datamax", value=amax(skymap))
-		
-		newheader.update(key="object", value=self.survey+" Skymap", comment=self.survey+" Mosaic")
+		newheader["bunit"] = (msc_bunit,"Map units")
+		newheader["datamin"] = (amin(skymap),"Min value")
+		newheader["datamax"] = (amax(skymap),"Max value")
+		newheader["object"] = (self.survey+" Skymap",self.survey+" Mosaic")
 		
 		results = pyfits.PrimaryHDU(skymap, newheader)
 		

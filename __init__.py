@@ -8,3 +8,4 @@ from Mosaic import *
 from makeMosaic import *
 from makeCorrection import *
 from combineMosaics import *
+from makeAnnuli import *

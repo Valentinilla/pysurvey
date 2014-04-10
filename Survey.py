@@ -10,12 +10,14 @@ from Mosaic import *
 from makeMosaic import *
 from makeCorrection import *
 from combineMosaics import *
+from makeAnnuli import *
+from testModule import *
 
 class Survey:
 	
 	def __init__(self, survey='MySurvey', species='HI', mosaic='skymap', configFile = False, 
 		surveyConfig = {'survey':'MySurvey','species':'HI'},
-		mosaicConfig = {'mosaic':'skymap','lon':'INDEF','lat':'INDEF','vel1':'INDEF','vel2':'INDEF','side':'INDEF'},
+		mosaicConfig = {'mosaic':'skymap','lon':'INDEF','lat':'INDEF','z1':'INDEF','z2':'INDEF','side':'INDEF'},
 		utilsConfig = {'tcmb':2.7, # Cosmic Microwave Background temperature (K)
 		'tspin':150., # Excitation or Spin temperature (K)
 		'xfactor':1.9e20, # CO Factor - Strong & Mattox (1996): X=NH2/Wco (K-1 cm-2 km-1 s)
@@ -175,7 +177,21 @@ class Survey:
 			self.logger.critical("One or more needed files do not exist")
 			return
 			
-	
+	def getGalpropMap(self,species='HI',type='column density'):
+		try:
+			self.mosaic
+			self.mosaic.newspec = species
+ 		except AttributeError:
+			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the loadMap function.")
+			return
+		try:
+			self.galprop = makeAnnuli(self.mosaic,self.mosaicConf,self.utilsConf)
+			self.logger.info(self.ret.subn(', ',str(self.galprop))[0])
+			
+		except(FileNotFound):
+			self.logger.critical("One or more needed files do not exist")
+			return
+
 	def combineMosaics(self,species='HI',type='column density',flag=''):
 		
 		try:
@@ -214,6 +230,24 @@ class Survey:
 		checkForFiles(self.logger,[filename])
 		self.logger.info('Removing file: '+filename)
 		os.remove(filename)
+
+	def testFunction(self,species='HI'):
+		"""
+		Access mosaic's attributes through self.test
+		"""
+		try:
+			self.mosaic
+			self.mosaic.newspec = species
+ 		except AttributeError:
+			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the loadMap function.")
+			return
+		try:
+			self.test = testModule(self.mosaic,self.mosaicConf,self.utilsConf)
+			self.logger.info(self.ret.subn(', ',str(self.test))[0])
+			
+		except(FileNotFound):
+			self.logger.critical("One or more needed files do not exist")
+		
 
 def printCLIHelp():
     	"""

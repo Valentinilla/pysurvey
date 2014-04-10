@@ -38,6 +38,74 @@ glob_N = 'column density'
 #################################################
 #	START GENERAL FUNCTIONS
 #################################################
+def setNewHeader(surveyLogger,key):
+
+	newheader = pyfits.Header()
+	
+	keyword_list1 = ["ctype1","crval1","crpix1","cdelt1","crota1","cunit1"]
+	keyword_list2 = ["ctype2","crval2","crpix2","cdelt2","crota2","cunit2"]
+
+	if key["ctype1"] == "GLON-CAR":
+		comments_list1 = ["Coordinate type","Galactic longitude of reference pixel",\
+			"Reference pixel of lon","Longitude increment","Longitude rotation","Unit type"]
+		if not("crota1" or "crota2") in key:
+			key["crota1"] = 0.0
+			key["crota2"] = 0.0
+		if not "cunit1" in key:
+			key["cunit1"] = "deg"
+		
+		for k in keyword_list1:
+			key[k] = (key[k],key.comments[k])
+
+		
+	if key["ctype2"] == "GLAT-CAR":
+		key["cunit2"] = ("deg", "Unit type")
+	if not("crota1" or "crota2") in key:
+			key["crota1"] = (0.0,"Longitude rotation")
+			key["crota2"] = (0.0,"Latitude rotation")
+
+
+	keyword_list3 = ["ctype3","crval3","crpix3","cdelt3","crota3","cunit3"]
+	keyword_list4 = ["ctype4","crval4","crpix4","cdelt4","crota4","cunit4"]
+	keyword_list5 = ["bunit","datamin","datamax","object","image","date"]
+	
+	if key["naxis"] == 2:
+		keyword_list = keyword_list1+keyword_list2
+	elif key["naxis"] == 3:
+		keyword_list = keyword_list1+keyword_list2+keyword_list3
+	elif key["naxis"] == 4:
+		keyword_list = keyword_list1+keyword_list2+keyword_list3+keyword_list4
+	
+	for k in keyword_list:
+		#newheader[k] = (key[k],key.comments[k])
+		print key[k],key.comments[k]
+	
+	exit(0)
+	try:
+		if key["ctype1"] == "GLON-CAR":
+			newheader["ctype1"] = (key["ctype1"],"Coordinate type")
+			newheader["crval1"] = (key["crval1"],"Galactic longitude of reference pixel")
+			newheader["crpix1"] = (key["crpix1"],"Reference pixel of lon")
+			newheader["cdelt1"] = (key["cdelt1"],"Longitude increment")
+			newheader["crota1"] = (key["crota1"],"Longitude rotation")
+			newheader["cunit1"] = (key["cunit1"],"Unit type")
+		
+		newheader["ctype2"] = (key["ctype2"], key.comments["ctype2"])
+		newheader["crval2"] = (key["crval2"], key.comments["crval2"])
+		newheader["crpix2"] = (key["crpix2"], key.comments["crpix2"])
+		newheader["cdelt2"] = (key["cdelt2"], key.comments["cdelt2"])
+		newheader["crota2"] = (key["crota2"], key.comments["crota2"])
+		newheader["cunit2"] = (key["cunit2"], key.comments["cunit2"])
+				
+		newheader["bunit"] = ("atoms cm-2", "Map units")
+		newheader["datamin"] = ("%e"%amin(N))
+		newheader["datamax"] = ("%e"%amax(N))
+		newheader["object"] = ("Mosaic "+self.mosaic, self.survey+" Mosaic")
+		
+		return newheader
+	except:
+		surveyLogger.critical("Some keyword missing. Cannot generate a new header!")
+
 def getMosaicCoordinate(surveyLogger,obs,survey,lon,lat,side):
 	"""
 	This function allows to generate 'mosaics' like those
@@ -58,14 +126,14 @@ def getMosaicCoordinate(surveyLogger,obs,survey,lon,lat,side):
 	lat2 = lat+side
 	
 	# Check if the coordinates in .cfg are inside the mosaic object
-	obj_lon_max = obs.msc_ref_lon+((obs.msc_lon-1.)*abs(obs.msc_del_lon))/2.
-	obj_lon_min = obs.msc_ref_lon-((obs.msc_lon-1.)*abs(obs.msc_del_lon))/2.
+	obj_lon_max = obs.keyword["crval1"]+((obs.keyword["naxis1"]-1.)*abs(obs.keyword["cdelt1"]))/2.
+	obj_lon_min = obs.keyword["crval1"]-((obs.keyword["naxis1"]-1.)*abs(obs.keyword["cdelt1"]))/2.
 	if survey == 'LAB':
-		obj_lat_max = obs.msc_ref_lat+((obs.msc_lat-1.)*obs.msc_del_lat)
-		obj_lat_min = obs.msc_ref_lat
+		obj_lat_max = obs.keyword["crval2"]+((obs.keyword["naxis2"]-1.)*obs.keyword["cdelt2"])
+		obj_lat_min = obs.keyword["crval2"]
 	else:
-		obj_lat_max = obs.msc_ref_lat+((obs.msc_lat-1.)*obs.msc_del_lat)/2.
-		obj_lat_min = obs.msc_ref_lat-((obs.msc_lat-1.)*obs.msc_del_lat)/2.
+		obj_lat_max = obs.keyword["crval2"]+((obs.keyword["naxis2"]-1.)*obs.keyword["cdelt2"])/2.
+		obj_lat_min = obs.keyword["crval2"]-((obs.keyword["naxis2"]-1.)*obs.keyword["cdelt2"])/2.
 
 	lon_max = max(lon1,lon2)
 	lon_min = min(lon1,lon2)
@@ -82,10 +150,10 @@ def getMosaicCoordinate(surveyLogger,obs,survey,lon,lat,side):
 			surveyLogger.critical("doesn't match that of the mosaic!")	
 			sys.exit(0)
 
-	l1 = int(round(obs.msc_ind_lon+(lon1-obs.msc_ref_lon)/obs.msc_del_lon))
-	l2 = int(round(obs.msc_ind_lon+(lon2-obs.msc_ref_lon)/obs.msc_del_lon))
-	b1 = int(round(obs.msc_ind_lat+(lat1-obs.msc_ref_lat)/obs.msc_del_lat))
-	b2 = int(round(obs.msc_ind_lat+(lat2-obs.msc_ref_lat)/obs.msc_del_lat))
+	l1 = int(round(obs.keyword["crpix1"]+(lon1-obs.keyword["crval1"])/obs.keyword["cdelt1"]))
+	l2 = int(round(obs.keyword["crpix1"]+(lon2-obs.keyword["crval1"])/obs.keyword["cdelt1"]))
+	b1 = int(round(obs.keyword["crpix2"]+(lat1-obs.keyword["crval2"])/obs.keyword["cdelt2"]))
+	b2 = int(round(obs.keyword["crpix2"]+(lat2-obs.keyword["crval2"])/obs.keyword["cdelt2"]))
 
 	l = [l1,l2]
 	b = [b1,b2]
@@ -101,7 +169,7 @@ def getMosaicCoordinate(surveyLogger,obs,survey,lon,lat,side):
 	if b1>b2:
 		b = [b2,b1]
 	
-	length = rint(side/fabs(obs.msc_del_lat)*2)
+	length = rint(side/fabs(obs.keyword["cdelt2"])*2)
 	
 	# Make an equal sides (Lx=Ly) mosaic
 	if length%2 == 0:
@@ -274,6 +342,19 @@ def extrap(x, xp, yp):
 	y[x > xp[-1]] = yp[-1] + (x-xp[-1]) * (yp[-1]-yp[-2]) / (xp[-1]-xp[-2])
 	return y
 
+def find_ge(surveyLogger,a, x):
+	import bisect
+	i = bisect.bisect_left(a,x)
+	if x == 0.:
+		i = 0
+	if x > a[len(a)-1]:
+		i = len(a)-1
+	if i != len(a):
+		return i
+	else:
+		surveyLogger.critical("Cannot find the right annulus!")
+		raise ValueError
+
 # Moment Masking Routins
 def getRMS(surveyLogger,T):
 	
@@ -394,7 +475,7 @@ def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
 		if(cx > 0.5):
 			vbgr[ix[0]] = vrs[yha[ix[0]],xha[ix[0]]]
 		
-		# Remove data holes
+		# Remove data holes by linear interpolation
 		dmax = floor(16.*cos(glon)/0.05)
 		if(dmax>6):
 			vba = zeros(vbgr.shape)
@@ -432,8 +513,6 @@ def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
 		#plotFunc(proj_dis,v_lsr)
 		# Extrapolate vbgr
 		if(cos(glon)>0.1):
-		#if(abs(cos(glon))>0.1):
-			#print 'Here'
 			phn = int(round(40.*pmean-5.))
 			vmean = sum( vbgr[phn-5:phn] )/6.
 			vrmean = sum( v_lsr[phn-5:phn] )/6.
@@ -450,16 +529,19 @@ def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
 		try:
 			i = 0
 			diff=[]
-			for vel in vr:
-				if abs(vel-vlsr) < 10.: # km/s
-					diff.append([abs(vel-vlsr),i])
-					#print "1) vlsr = %s, v = %s, r = %s, i = %s"%(vlsr,vel,proj_dis[i],i)
-				i=i+1			
-			radius = proj_dis[min(diff)[1]]
+			if (vlsr<(-50+3*glo_deg)) or (vlsr>25. and glo_deg<0.) or (vlsr>(10.+3*glo_deg) and glo_deg>=0.):
+				radius = 1.;
+			else:
+				for vel in vr:
+					if abs(vel-vlsr) < 10.: # km/s
+						diff.append([abs(vel-vlsr),i])
+						print "1) vlsr = %s, v = %s, r = %s, i = %s"%(vlsr,vel,proj_dis[i],i)
+					i=i+1			
+				radius = proj_dis[min(diff)[1]]
 			return radius # kpc
 		except ValueError:
-			surveyLogger.critical("The rotation curve doesn't contain the vlsr value of the mosaic!!")
-			surveyLogger.critical("i) [vrot_min, vrot_max] = [%.2f,%.2f], vlsr_msc = %.2f"%(amin(vr),amax(vr),vlsr))
+			surveyLogger.critical("The rotation curve doesn't contain the mosaic velocity!!")
+			surveyLogger.critical("i) [vmin,vmax] = [%.2f,%.2f], vmsc = %.2f"%(amin(vr),amax(vr),vlsr))
 			sys.exit(0)	
 
 #################################################
@@ -477,7 +559,7 @@ def plotFunc(x,*func):
 		plt.plot(x,func[0],label='func1',color='black',lw=1)#,'x',xi2,yi2)
 		plt.legend()# ('func1'),loc='upper left', shadow=False, fancybox=True)
 	if n==2:
-		plt.plot(x,func[0],'o',x,func[1])
+		plt.plot(x,func[0],x,func[1])
 		plt.legend( ('func1','func2'),loc='upper left',shadow=False,fancybox=True)
 	if n==3:
 		plt.plot(x,func[0],x,func[1],x,func[2])

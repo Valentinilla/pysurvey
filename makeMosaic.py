@@ -67,49 +67,38 @@ class makeMosaic(object):
 			self.mosaic = mosaicConf['mosaic']
 			lon = mosaicConf['lon'] # deg
 			lat = mosaicConf['lat'] # deg
-			v1 = mosaicConf['vel1'] # km/s
-			v2 = mosaicConf['vel2'] # km/s
+			z1 = mosaicConf['z1'] # m/s or kpc
+			z2 = mosaicConf['z2'] # m/s or kpc
 			side = mosaicConf['side']
 			
-			if self.survey == 'Galprop':
-				if v1 == 'INDEF' and v2 == 'INDEF':
-					v1 = amin(obs.ring_array)
-					v2 = amax(obs.ring_array)
-				else:
-					v1 = float(v1) # kpc
-					v2 = float(v2) # kpc
-				v1_px = int(ceil(obs.msc_ind_ring-1.+(v1-obs.msc_ref_ring)/obs.msc_del_ring))
-				v2_px = int(ceil(obs.msc_ind_ring-1.+(v2-obs.msc_ref_ring)/obs.msc_del_ring))
-				
-			elif self.survey == 'LAB' or self.survey == 'SGPS':
-				if v1 == 'INDEF' and v2 == 'INDEF':
-					v1 = amin(obs.vel_array)
-					v2 = amax(obs.vel_array)
-				else:
-					v1 = float(v1) # km/s
-					v2 = float(v2) # km/s
-				v1_px = int(ceil(obs.msc_ind_vel-1.+(v1-obs.msc_ref_vel)/obs.msc_del_vel))
-				v2_px = int(ceil(obs.msc_ind_vel-1.+(v2-obs.msc_ref_vel)/obs.msc_del_vel))
+			if z1 == 'INDEF' and z2 == 'INDEF':
+				z1 = amin(obs.zarray)
+				z2 = amax(obs.zarray)
+			else:
+				z1 = float(z1)
+				z2 = float(z2)
+			z1_px = int(ceil(obs.keyword["crpix3"]-1.+(z1-obs.keyword["crval3"])/obs.keyword["cdelt3"]))
+			z2_px = int(ceil(obs.keyword["crpix3"]-1.+(z2-obs.keyword["crval3"])/obs.keyword["cdelt3"]))
 			
 			if lon == 'INDEF' and lat == 'INDEF':
-				lon = obs.msc_ref_lon
-				lat = obs.msc_ref_lat
+				lon = obs.keyword["crval1"]
+				lat = obs.keyword["crval2"]
 			else:
 				lon = float(lon) # deg
 				lat = float(lat) # deg
 			
 			if side == 'INDEF':
-				side = fabs(obs.msc_lon*obs.msc_del_lon)
+				side = fabs(obs.keyword["naxis1"]*obs.keyword["cdelt1"])
 			else:
 				side = float(side)/2.  # deg
 			
 			l,b,sign = getMosaicCoordinate(self.logger,obs,self.survey,lon,lat,side)
 			
 			if not self.survey == 'Dame':
-				v = [v1_px,v2_px]
+				z = [z1_px,z2_px]
 				# Order indexes	
-				if v1_px>v2_px:
-					v = [v2_px,v1_px]
+				if z1_px>z2_px:
+					z = [z2_px,z1_px]
 			
 			crpix1 = int(round((l[1]-l[0])/2.))
 			crpix2 = int(round((b[1]-b[0])/2.))
@@ -117,91 +106,83 @@ class makeMosaic(object):
 			self.logger.info("Mosaic properties:")
 			self.logger.info("- (l0,b0) = (%.3f,%.3f) deg, [%s,%s] px"%(lon,lat,l[0]+crpix1,b[0]+crpix2))
 			if self.survey == 'Galprop':
-				self.logger.info("- (r1,r2) = (%.2f,%.2f) px"%(v[0],v[1]))
+				self.logger.info("- (r1,r2) = (%.2f,%.2f) px"%(z[0],z[1]))
 			elif self.survey == 'LAB' or self.survey == 'SGPS':
-				self.logger.info("- (v1,v2) = (%.3f,%.3f) km/s, [%s,%s] px"%(v1,v2,v[0],v[1]))
+				self.logger.info("- (v1,v2) = (%.3f,%.3f) m/s, [%s,%s] px"%(z1,z2,z[0],z[1]))
 			self.logger.info("- (h0,w0) = (%s,%s) deg, [%s,%s] px"%(side,side,crpix1,crpix2))
 			
 			if not self.survey == 'Dame':
-				# The third axes can not be negative then I need to increase the index on the right v[1] by 1
+				# The third axes can not be negative then I need to increase the index on the right z[1] by 1
 				# in order to match the size of the origianl axes
-				if v[0] == 0:
-					v[0] = 1
-					v[1] = v[1]+1
+				if z[0] == 0:
+					z[0] = 1
+					z[1] = z[1]+1
 			
 			newmosaic = ''
 			if self.survey == 'Dame':
 				newmosaic = obs.observation[b[0]:b[1],l[0]:l[1]]
 			if self.survey == 'LAB':
-				newmosaic = obs.observation[v[0]-1:v[1],b[0]:b[1],l[0]:l[1]] 
+				newmosaic = obs.observation[z[0]-1:z[1],b[0]:b[1],l[0]:l[1]] 
 			if self.survey == 'SGPS':
-				newmosaic = obs.observation[:,v[0]-1:v[1],b[0]:b[1],l[0]:l[1]]
+				newmosaic = obs.observation[:,z[0]-1:z[1],b[0]:b[1],l[0]:l[1]]
 			if self.survey == 'Galprop':
-				newmosaic = obs.observation[v[0]-1:v[1],b[0]:b[1],l[0]:l[1]]
+				newmosaic = obs.observation[z[0]-1:z[1],b[0]:b[1],l[0]:l[1]]
 				# Revert the longitude
 				newmosaic = newmosaic[:,:,::-1] #sintax [::-1] = [start:stop:step]
-				obs.msc_del_lon=sign[0]*obs.msc_del_lon
-				obs.msc_del_lat=sign[1]*obs.msc_del_lat
-			if not self.survey == 'LAB':	
-				obs.msc_rot_lon = 0
-				obs.msc_rot_lat = 0
-				obs.msc_rot_ring = 0
+				obs.keyword["cdelt1"] = sign[0]*obs.keyword["cdelt1"]
+				obs.keyword["cdelt2"] = sign[1]*obs.keyword["cdelt2"]
 			
 			# Write new header
 			newheader = pyfits.Header()
-			newheader.update(key="ctype1", value="GLON-CAR", comment="Coordinate type")
-			newheader.update(key="crval1", value=lon, comment="Galactic longitude of reference pixel")
-			newheader.update(key="crpix1", value=crpix1, comment="Reference pixel of lon")
-			newheader.update(key="cdelt1", value=obs.msc_del_lon, comment="Longitude increment")
-			newheader.update(key="crota1", value=obs.msc_rot_lon, comment="Longitude rotation")
-			newheader.update(key="cunit1", value="deg", comment="Unit type")
-			newheader.update(key="ctype2", value="GLAT-CAR", comment="Coordinate type")
-			newheader.update(key="crval2", value=lat, comment="Galactic latitude of reference pixel")
-			newheader.update(key="crpix2", value=crpix2, comment="Reference pixel of lat")
-			newheader.update(key="cdelt2", value=obs.msc_del_lat, comment="Latitude increment")
-			newheader.update(key="crota2", value=obs.msc_rot_lat, comment="Latitude rotation")
-			newheader.update(key="cunit2", value="deg", comment="Unit type")
-
+			newheader["ctype1"] = ("GLON-CAR","Coordinate type")
+			newheader["crval1"] = (lon,"Galactic longitude of reference pixel")
+			newheader["crpix1"] = (crpix1,"Reference pixel of lon")
+			newheader["cdelt1"] = (obs.keyword["cdelt1"],"Longitude increment")
+			newheader["crota1"] = (obs.keyword["crota1"],"Longitude rotation")
+			newheader["cunit1"] = ("deg","Unit type")
+			newheader["ctype2"] = ("GLAT-CAR","Coordinate type")
+			newheader["crval2"] = (lat,"Galactic latitude of reference pixel")
+			newheader["crpix2"] = (crpix2,"Reference pixel of lat")
+			newheader["cdelt2"] = (obs.keyword["cdelt2"],"Latitude increment")
+			newheader["crota2"] = (obs.keyword["crota2"],"Latitude rotation")
+			newheader["cunit2"] = ("deg","Unit type")
+			
 			if self.survey == 'Dame':
-				newheader.update(key="bunit", value="K km s-1", comment="Map units")
+				newheader["bunit"] = ("K km s-1","Map units")
 			
 			if self.survey == 'Galprop':
-				newheader.update(key="ctype3", value="RingBand", comment="Coordinate type")
-				newheader.update(key="crval3", value=obs.ring_array[v[0]-1], comment="Ring of reference pixel")
-				newheader.update(key="crpix3", value=1, comment="Reference pixel of ring")
-				newheader.update(key="cdelt3", value=obs.msc_del_ring, comment="Ring increment")
-				newheader.update(key="crota3", value=obs.msc_rot_ring, comment="Ring rotation")
-				newheader.update(key="cunit3", value="ring num", comment="Unit type")
-				newheader.update(key="bunit", value="K km s-1", comment="Map units")
+				newheader["ctype3"] = ("RingBand","Coordinate type")
+				newheader["crval3"] = (obs.zarray[z[0]-1],"Ring of reference pixel")
+				newheader["crpix3"] = (1,"Reference pixel of ring")
+				newheader["cdelt3"] = (obs.keyword["cdelt3"],"Ring increment")
+				newheader["crota3"] = (obs.keyword["crota3"],"Ring rotation")
+				newheader["cunit3"] = ("ring num","Unit type")
+				newheader["bunit"]  = ("K km s-1","Map units")
 			elif self.survey == 'LAB' or self.survey == 'SGPS':
-				newheader.update(key="ctype3", value="VELO-LSR", comment="Coordinate type")
-				newheader.update(key="crval3", value=obs.vel_array[v[0]-1]*1e3, comment="Velocity of reference pixel")
-				newheader.update(key="crpix3", value=1, comment="Reference pixel of vel")
-				newheader.update(key="cdelt3", value=obs.msc_del_vel*1e3, comment="Velocity increment")
-				newheader.update(key="crota3", value=obs.msc_rot_vel, comment="Velocity rotation")
-				newheader.update(key="cunit3", value="m/s", comment="Unit type")
-				newheader.update(key="bunit", value="K", comment="Map units")
+				newheader["ctype3"] = ("VELO-LSR","Coordinate type")
+				newheader["crval3"] = (obs.zarray[z[0]-1],"Velocity of reference pixel")
+				newheader["crpix3"] = (1,"Reference pixel of vel")
+				newheader["cdelt3"] = (obs.keyword["cdelt3"],"Velocity increment")
+				newheader["crota3"] = (obs.keyword["crota3"],"Velocity rotation")
+				newheader["cunit3"] = ("m/s","Unit type")
+				newheader["bunit"]  = ("K","Map units")
 			
-			newheader.update(key="system", value="GALACTIC", comment="Coordinate system")
-			newheader.update(key="equinox", value=2000., comment="Equinox of ref. coord.")
+			newheader["system"] = ("GALACTIC","Coordinate system")
+			newheader["equinox"] = (2000.,"Equinox of ref. coord.")
+			newheader["datamin"] = (amin(newmosaic),"Min value")
+			newheader["datamax"] = (amax(newmosaic),"Max value")
+			newheader["object"] = (self.survey+" Mosaic "+self.mosaic,self.survey+" Mosaic")
 			
-			newheader.update(key="datamin", value=amin(newmosaic))
-			newheader.update(key="datamax", value=amax(newmosaic))
+			if self.survey == 'LAB' or self.survey == 'SGPS':
+				newheader["band"] = (obs.keyword["band"],"Rest frequency in Hz")
 			
-			newheader.update(key="object", value=self.survey+" Mosaic "+self.mosaic, comment=self.survey+" Mosaic")
-			if self.survey == 'LAB':
-				newheader.update(key="freq0", value=obs.msc_band, comment="Rest frequency in Hz")
-			if self.survey == 'SGPS':
-				newheader.update(key="restfreq", value=obs.msc_band, comment="Rest frequency in Hz")
-			
-			print newheader
 			results = pyfits.PrimaryHDU(newmosaic,newheader)
 					
 		else:
 			
 			# Get emission data and velocity interval
 			Tb = obs.observation[:,:,:,:]
-			dv = fabs(obs.msc_del_vel) # [velocity] = km s-1
+			dv = fabs(obs.keyword['cdelt3']/1000.) # [velocity] = km s-1
 			
 			if self.species == 'HI' or self.species == 'HISA':
 				
@@ -245,16 +226,16 @@ class makeMosaic(object):
 						#	Tb[0,m,l,k] = nd #Tb[0,m,l,k]-nd
 				
 			if self.species == 'HISA':
-				obs.header['DATAMIN'] = amin(result_array)
-				obs.header['DATAMAX'] = amax(result_array)
-				results = pyfits.PrimaryHDU(result_array,obs.header)
-				results.scale('int16', '', bscale=obs.msc_bscale, bzero=obs.msc_bzero)
+				obs.keyword['datamin'] = amin(result_array)
+				obs.keyword['datamax'] = amax(result_array)
+				results = pyfits.PrimaryHDU(result_array,obs.keyword)
+				results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)
 			
 			elif self.species == 'HI':
-				obs.header['DATAMIN'] = amin(Tb)
-				obs.header['DATAMAX'] = amax(Tb)
-				results = pyfits.PrimaryHDU(Tb,obs.header)
-				results.scale('int16', '', bscale=obs.msc_bscale, bzero=obs.msc_bzero)
+				obs.keyword['datamin'] = amin(Tb)
+				obs.keyword['datamax'] = amax(Tb)
+				results = pyfits.PrimaryHDU(Tb,obs.keyword)
+				results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)
 			
 			elif self.species == 'CO':
 				
@@ -285,11 +266,11 @@ class makeMosaic(object):
 				# Calculate the moment-masked cube
 				Tb[0,:,:,:] = Mask*T
 				
-				obs.header['DATAMIN'] = amin(Tb)
-				obs.header['DATAMAX'] = amax(Tb)
+				obs.keyword['datamin'] = amin(Tb)
+				obs.keyword['datamax'] = amax(Tb)
 				
-				results = pyfits.PrimaryHDU(Tb,obs.header)
-				results.scale('int16', '', bscale=obs.msc_bscale, bzero=obs.msc_bzero)		
+				results = pyfits.PrimaryHDU(Tb,obs.keyword)
+				results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)		
 		
 		# Output file
 		self.logger.info("Write scaled data to a fits file in...")

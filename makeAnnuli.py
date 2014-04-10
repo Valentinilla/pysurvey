@@ -6,7 +6,7 @@ __version__ = '0.1.0'
 from SurveyUtils import*
 
 
-class makeCorrection(object):
+class makeAnnuli(object):
 	
 	def __init__(self,mosaic,mosaicConf,utilsConf):
 		"""
@@ -18,7 +18,7 @@ class makeCorrection(object):
 		self.species = mosaic.newspec #specified by the user
 		self.type = mosaic.type
 
-		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_ColumnDensity')
+		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_GenGalpropMap')
 		file = ''
 		path = ''
 		flag = ''
@@ -48,13 +48,27 @@ class makeCorrection(object):
 			path = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
 			flag = 'HI+HISA+H2'
 
-		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_column_density.fits'
+		file = path+self.survey+'_'+self.mosaic+'_galprop_'+flag+'_column_density.fits'
 		checkForFiles(self.logger,[file],existence=True)
 		
 		self.logger.info("Open file and get data...")
+				
+		# Boundaries of Galactocentric Annuli - M.Ackermann et al
+		# (The Astrophysical Journal, 750:3-38, 2012)
+		annuli = 17
+		rmin = [0.,1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.]
+		rmax = [1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.,50.]
+		ann_boundaries = []
 		
+		for a in range(0,annuli):
+			ann_boundaries.append([a,rmin[a],rmax[a]])
+		
+		lon = mosaic.keyword['naxis1']
+		lat = mosaic.keyword['naxis2']
+		vel = mosaic.keyword['naxis3']
+
 		# Array to store results
-		N = zeros((mosaic.keyword['naxis2'],mosaic.keyword['naxis1']),dtype=float)
+		N = zeros((annuli,lat,lon),dtype=float)
 		
 		Ts = float(utilsConf['tspin'])	  # [Excitation (or Spin) Temperature] = K (150)
 		Tbg = float(utilsConf['tcmb'])	  # [Cosmic Microwave Background (CMB)] = K
@@ -121,31 +135,31 @@ class makeCorrection(object):
 			# than add them up and skip the calculation (or skip the unnecessary one)		
 			if self.species == 'HI+HISA':
 				path1 = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
-				file1 = path1+self.survey+'_'+self.mosaic+'_HI_unabsorbed_column_density.fits'
+				file1 = path1+self.survey+'_'+self.mosaic+'_galprop_HI_unabsorbed_column_density.fits'
 				
 				path2 = getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
-				file2 = path2+self.survey+'_'+self.mosaic+'_HISA_column_density.fits'
+				file2 = path2+self.survey+'_'+self.mosaic+'_galprop_HISA_column_density.fits'
 				
 				N,flagHI,flagHISA = checkToGetData(self.logger,file1,file2)
 				
 			if self.species == 'HI+CO':
 				path1 = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
-				file1 = path1+self.survey+'_'+self.mosaic+'_HI_unabsorbed_column_density.fits'
+				file1 = path1+self.survey+'_'+self.mosaic+'_galprop_HI_unabsorbed_column_density.fits'
 				
 				path2 = getPath(self.logger,'lustre_'+sur+'_co_column_density')
-				file2 = path2+self.survey+'_'+self.mosaic+'_H2_column_density.fits'
+				file2 = path2+self.survey+'_'+self.mosaic+'_galprop_H2_column_density.fits'
 				
 				N,flagHI,flagCO = checkToGetData(self.logger,file1,file2)
 							
 			if self.species == 'HI+HISA+CO':
 				path1 = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
-				file1 = path1+self.survey+'_'+self.mosaic+'_HI_unabsorbed_column_density.fits'
+				file1 = path1+self.survey+'_'+self.mosaic+'_galprop_HI_unabsorbed_column_density.fits'
 				
 				path2 = getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
-				file2 = path2+self.survey+'_'+self.mosaic+'_HISA_column_density.fits'
+				file2 = path2+self.survey+'_'+self.mosaic+'_galprop_HISA_column_density.fits'
 				
 				path3 = getPath(self.logger,'lustre_'+sur+'_co_column_density')
-				file3 = path3+self.survey+'_'+self.mosaic+'_H2_column_density.fits'
+				file3 = path3+self.survey+'_'+self.mosaic+'_galprop_H2_column_density.fits'
 
 				N,flagHI,flagHISA,flagCO = checkToGetData(self.logger,file1,file2,file3)
 						
@@ -159,7 +173,8 @@ class makeCorrection(object):
 				# HI Column Density						
 				if(not self.species == 'HISA') and (flagHI == True):
 
-					NHI = zeros((mosaic.keyword['naxis2'],mosaic.keyword['naxis1']),dtype=float)
+					NHI = zeros((annuli,lat,lon),dtype=float)
+					ITb = zeros((annuli,lat,lon),dtype=float)
 					
 					self.logger.info("Initializing parameters...")
 					self.logger.info("1) Ts = %.2f K"%Ts)
@@ -176,12 +191,26 @@ class makeCorrection(object):
 					
 					Tfunc[Tfunc<1.] = 1. # <------ TO JUSTIFY
 					cTb = log(Tfunc) * Ts
-					# Integrated brightness temperature over velocity (axis = 0)
-					ITb = sum(cTb[kmin:kmax,:,:],axis=0)
+					
+					# Integrated brightness temperature over each annulus
+					for l in range(0,lon):
+						for b in range(0,lat):
+							for v in range(18,vel):
+								glon = mosaic.xarray[l]
+								glat = mosaic.yarray[b]
+								vlsr = mosaic.zarray[v]/1000.
+					 			#print glon,glat,vlsr
+								d = rotCurveMPohl(self.logger,glon,glat,vlsr) #kpc
+								i = find_ge(self.logger,rmax,d)
+								annulus = ann_boundaries[i][0]
+								ITb[annulus,b,l] += cTb[v,b,l]
+								if not v%150:
+									self.logger.info("(l,b) = (%i,%i) - lon=%.3f lat=%.3f d=%.1f ring=%i i=%i"%(l,b,glon,glat,d,annulus,i))
+					
 					# Column density
 					NHI = C*ITb*dv # [NHI] = cm-2
 					N = NHI*cosdec
-					
+					#exit(0)
 				# HISA Column Density
 				if(not self.species == 'HI') and (not self.species == 'HI+CO') and (flagHISA == True):
 					NHISA = zeros((mosaic.observation.shape),dtype=float)
@@ -331,6 +360,12 @@ class makeCorrection(object):
 		newheader["cdelt2"] = (mosaic.keyword["cdelt2"],"Latitude increment")
 		newheader["crota2"] = (mosaic.keyword["crota2"],"Latitude rotation")
 		newheader["cunit2"] = ("deg","Unit type")
+
+		newheader["ctype3"] = ("Ring","Coordinate type")
+		newheader["crval3"] = (1,"Ring of reference pixel")
+		newheader["crpix3"] = (1,"Reference pixel of ring")
+		#newheader["cdelt3"] = (,"Ring increment")
+		#newheader["crota3"] = (mosaic.keyword["crota3"],"Ring rotation")
 
 		newheader["bunit"] = ("atoms cm-2","Map units")
 		newheader["datamin"] = ("%e"%amin(N),"Min value")
