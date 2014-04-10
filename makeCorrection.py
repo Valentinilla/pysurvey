@@ -76,6 +76,7 @@ class makeCorrection(object):
 						
 			# Get data		
 			Tb = mosaic.observation[:,:,:]
+			del mosaic.observation
 			
 			# Tb must be < Ts, otherwise problems with log
 			index = where(Tb>=Ts)
@@ -99,21 +100,13 @@ class makeCorrection(object):
 			if self.species == 'WCO':
 				# Get emission data and velocity interval
 				wco = mosaic.observation
+				del mosaic.observation
+				
 				# 2 accounts for the convertion from molecules to atoms
 				N = 2*wco*float(utilsConf['xfactor'])*cosdec
 				
 		elif self.survey == 'CGPS' or self.survey == 'SGPS':
-			
-			# Usefull velocity channels
-			kmin = 0
-			kmax = 0
-			if self.survey == 'CGPS':
-	               		kmin = 18
-	               		kmax = 271
-			if self.survey == 'SGPS':
-	               		kmin = 1
-        	       		kmax = 410
-			
+						
 			# Used to skip calculation (see below) - do not change it!
 			flagHI,flagCO,flagHISA = True, True, True
 			
@@ -165,7 +158,6 @@ class makeCorrection(object):
 					self.logger.info("1) Ts = %.2f K"%Ts)
 					self.logger.info("2) dV = %.2f km/s"%dv)
 					self.logger.info("3) Tb(min) = %.2f K, Tb(max) = %.2f K"%(amin(Tb),amax(Tb)))
-					#self.logger.info("4) Tc(min) = %.2f K, Tc(max) = %.2f K"%(amin(Tc),amax(Tc)))
 					
 					self.logger.info("Calculating NHI...")
 					# Optical depth correction
@@ -177,7 +169,7 @@ class makeCorrection(object):
 					Tfunc[Tfunc<1.] = 1. # <------ TO JUSTIFY
 					cTb = log(Tfunc) * Ts
 					# Integrated brightness temperature over velocity (axis = 0)
-					ITb = sum(cTb[kmin:kmax,:,:],axis=0)
+					ITb = sum(cTb[mosaic.zmin:mosaic.zmax,:,:],axis=0)
 					# Column density
 					NHI = C*ITb*dv # [NHI] = cm-2
 					N = NHI*cosdec
@@ -233,7 +225,7 @@ class makeCorrection(object):
 						string = "%s %s %s %s\n"%(d,glon,glat,vlsr)
 						galax_dist.write(string)
 						
-						theta = radians(mosaic.keyword['cdelt2']) #rad
+						theta = radians(mosaic.dy) #rad
 						ds = d*tan(theta)*1e3 #pc
 						
 						A1 = float(utilsConf['pc2cm'])*float(utilsConf['poverk'])
@@ -293,7 +285,7 @@ class makeCorrection(object):
 					
 					self.logger.info("Calculating NHI...")
 					# Corrected column density
-					N = N + sum(NHISA[0,kmin:kmax,:,:],axis=0)
+					N = N + sum(NHISA[0,mosaic.zmin:mosaic.zmax,:,:],axis=0)
 
 			if(self.species == 'CO' or self.species == 'HI+CO' or self.species == 'HI+HISA+CO') and (flagCO == True):
 				# Get CO emission data

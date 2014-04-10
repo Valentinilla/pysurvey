@@ -9,8 +9,8 @@ class testModule(object):
 	
 	def __init__(self,mosaic,mosaicConf,utilsConf):
 		"""
-		Calculate the column density of a mosaic (applying corrections) for the following species:
-		'HI'(default), and 'HISA','HI+HISA','HI+CO','HI+HISA+CO' only for CGPS/SGPS
+		Calculate the column density in galacto-centric rings using the rotation curve of M. Phol et al.
+		Boundaries of galacto-centric annuli by M.Ackermann et al.
 		"""
 		self.survey = mosaic.survey
 		self.mosaic = mosaic.mosaic
@@ -31,56 +31,50 @@ class testModule(object):
 		elif self.species == 'HISA':
 			path = getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
 			flag = 'HISA'
-
+		elif self.species == 'CO':
+			path = ''#getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
+			flag = 'CO'
+		
 		file = path+self.survey+'_'+self.mosaic+'_test_'+flag+'_ring_column_density.fits'
 		checkForFiles(self.logger,[file],existence=True)
 		
 		self.logger.info("Open file and get data...")
 				
+		# Get HI emission data
+		Tb = mosaic.observation[0,:,:,:]
+		
+		lon = mosaic.xarray
+		lat = mosaic.yarray
+		vel = mosaic.zarray/1000.
+		
+		nlon = mosaic.nx
+		nlat = mosaic.ny
+		nvel = mosaic.nz
+		
+		# free memory
+		del mosaic.observation
+		del mosaic.xarray
+		del mosaic.yarray
+		del mosaic.zarray
+		
+		Ts = float(utilsConf['tspin'])	  	# [Excitation (or Spin) Temperature] = K (150)
+		Tbg = float(utilsConf['tcmb'])	  	# [Cosmic Microwave Background (CMB)] = K
+		if not self.species == 'WCO':
+			dv = fabs(mosaic.dz/1000.)	# [velocity] = km s-1
+		C = float(utilsConf['c'])	  	# [costant] = cm-2
+		
+		# Corrections for latitude (almost negligible)
+		cosdec = cos(radians(lat)) 		# [lat. correction] = rad
+
 		# Boundaries of Galactocentric Annuli - M.Ackermann et al
 		# (The Astrophysical Journal, 750:3-38, 2012)
 		annuli = 17
 		rmin = [0.,1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.]
 		rmax = [1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.,50.]
-		ann_boundaries = []
-		
-		for a in xrange(0,annuli):
-			ann_boundaries.append([a,rmin[a],rmax[a]])
-		
-		nlon = mosaic.nx
-		nlat = mosaic.ny
-		nvel = mosaic.nz
+		ann_boundaries = [ [i,rmin[i],rmax[i]] for i in xrange(annuli)]
 
-		lon = mosaic.xarray
-		lat = mosaic.yarray
-		vel = mosaic.zarray/1000.
-		
 		# Array to store results
-		cubemap = zeros((annuli,nlat,nlon),dtype=float)
-		
-		Ts = float(utilsConf['tspin'])	  # [Excitation (or Spin) Temperature] = K (150)
-		Tbg = float(utilsConf['tcmb'])	  # [Cosmic Microwave Background (CMB)] = K
-		if not self.species == 'WCO':
-			dv = fabs(mosaic.dz/1000.)	  # [velocity] = km s-1
-		C = float(utilsConf['c'])	  # [costant] = cm-2
-		
-		# Corrections for latitude (almost negligible)
-		cosdec = cos(radians(lat)) # [lat. correction] = rad
-		
-		# Usefull velocity channels
-	        kmin = 18
-	    	kmax = 271
-			
-		# Computing Column Density
-		# Get HI emission data
-		Tb = mosaic.observation[0,:,:,:]
-		# free memory
-		del mosaic.observation
-
-		# Setting the negative/0-values to Tcmb 
-		#Tb = where( (Tb<0.) | (Tb==0.),Tbg,Tb)
-				
-		# HI Column Density						
+		cubemap = zeros((annuli,nlat,nlon),dtype=float)			
 		#NHI = zeros((annuli,nlat,nlon),dtype=float)
 		#ITb = zeros((annuli,nlat,nlon),dtype=float)
 					
@@ -88,12 +82,12 @@ class testModule(object):
 		self.logger.info("1) Ts = %.2f K"%Ts)
 		self.logger.info("2) dV = %.2f km/s"%dv)
 		self.logger.info("3) Tb(min) = %.2f K, Tb(max) = %.2f K"%(amin(Tb),amax(Tb)))
-		#self.logger.info("4) Tc(min) = %.2f K, Tc(max) = %.2f K"%(amin(Tc),amax(Tc)))
 					
 		self.logger.info("Calculating gas distribution...")
-					
-		#Limits: galactic longitude < |165 deg|, galactic latitude < |5 deg|.
-		path2 = getPath(self.logger,'rotcurve_mpohl')	
+		# Rotation curve of the Galaxy - M.Pohl, P.Englmaier, and N.Bissantz
+		# (The Astrophysical Journal, 677:283-291, 2008)
+		# Limits: galactic longitude < |165 deg|, galactic latitude < |5 deg|
+		path2 = getPath(self.logger,'rotcurve_mpohl')
 	
 		# Read in SPH model results
 		# Get Bissantz's data
@@ -113,11 +107,11 @@ class testModule(object):
 		xa = -10.+0.1*(R+arange(n1))
 		ya = -10.+0.1*(R+arange(n1))
 		rb = zeros((n1,n1),dtype=float)
-		for i in xrange(0,n1-1):
-			rb[:,i] = sqrt(xa[i]**2+ya**2)
+		rb = [sqrt(xa[i]**2+ya**2) for i in xrange(n1)]
+		rb = array(rb)
 		ia = where(rb > 8.0)
 		vrs[ia] = 0.
-	
+		
 		# Position of sun in SPH model and 
 		# unit vectors (e) to GC (tangential) 
 		# and l = 90 (normal) direction
@@ -132,8 +126,10 @@ class testModule(object):
 		yha = zeros(3800,dtype=int)
 
 		# Line properties
-		sigma_co = 3.       #co velocity dispersion [km s-1]
-		sigma_co_inner = 5. #co velocity dispersion inner galaxy [km s-1]
+		sigma_hi = 4.		#hi velocity dispersion (from LAB) [km s-1]
+		
+		sigma_co = 3.		#co velocity dispersion [km s-1]
+		sigma_co_inner = 5.	#co velocity dispersion inner galaxy [km s-1]
 		
 		ivzero = int(floor(20./dv))  #24 CO CGPS; 17 LAB
 		iv_vec = arange(2*ivzero+1)  #49 CO CGPS
@@ -199,9 +195,8 @@ class testModule(object):
 		true_dis = dbin*(0.5+arange(N))
 		vbgr = zeros(N,dtype=float)
 		
-		for l in xrange(0,nlon):
+		for l in xrange(0,1):#nlon):
 			glo_deg = lon[l]
-			#vlsr = vel[v]/1000.
 			self.logger.info("%i) longitude: %.3f"%(l,lon[l]))
 			if (abs(glo_deg) < 165.):
 				glon = radians(glo_deg)
@@ -248,7 +243,7 @@ class testModule(object):
 						
 						while(cnt>0):
 							vba[:] = 0.
-							for k in xrange(0,cnt):
+							for k in xrange(cnt-2):
 								ia = idx[0][k]+1
 								if(vbgr[ia-1] != 0.):
 									if(vbgr[ia+1] != 0.):
@@ -292,8 +287,8 @@ class testModule(object):
 					# Weights from delta veff
 					dveff = array(veff)
 					dveff[-1] = fabs(veff[-2]-veff[-1])
-					for i in range(0,N-1):
-						dveff[i] = fabs(veff[i+1]-veff[i])
+					dveff[0:N-1] = [fabs(veff[i+1]-veff[i]) for i in xrange(N-1)]
+					
 					weight_veff = zeros(veff.shape)
 					# Equation (14)
 					weight_veff = where((dveff+1.e-8)>dv,dv,dveff+1.e-8)
@@ -330,7 +325,7 @@ class testModule(object):
 						ivhigh = ivpeak+ivzero
 						
 						if(ivlow > -0.5):
-							iv1 = 0 # hae = iv1; haf = iv2
+							iv1 = 0
 							if(ivhigh < (nvel-0.5)):
 								iv2 = size(iv_vec)-1
 								sigma_line = sigma_co*sqrt(2.*pi)
@@ -439,29 +434,13 @@ class testModule(object):
 								#else:
 									#print k
 						
-						#plotFunc(proj_dis[0:dimax],veff[0:dimax],vlist[0:dimax],linevpeak[0:dimax])
-						#exit(0)
-						
 						wgo = 1.-wgn
 						spec[ivlow:ivhigh] = spec[ivlow:ivhigh]-wgo*amp*line[iv1:iv2]-wgn*amp*line_inner[iv1:iv2]*sigma_line/sigma_line_inner
 						rspec = fftconvolve(spec,lim,'same')
 						wco = fabs(dv*sum(spec))
 						wcb = wco/sigma_line
 						
-						#if not wco%10:
-						#print wco,wcb,sigma_line
-						#plotFunc(vel,rspec)
-						#exit(0)
-				
 				#densi[b,l,379] = 0.
-
-				
-					# Integrated brightness temperature over each annulus
-					#i = find_ge(self.logger,rmax,d)
-					#annulus = ann_boundaries[i][0]
-					#ITb[annulus,b,l] += cTb[v,b,l]
-					#if not v%150:
-					#		self.logger.info("(l,b) = (%i,%i) - lon=%.3f lat=%.3f d=%.1f ring=%i i=%i"%(l,b,glon,glat,d,annulus,i))
 				
 		# Column density
 		#NHI = C*ITb*dv # [NHI] = cm-2
@@ -487,19 +466,29 @@ class testModule(object):
 		newheader["ctype3"] = ("Ring","Coordinate type")
 		newheader["crval3"] = (1,"Ring of reference pixel")
 		newheader["crpix3"] = (1,"Reference pixel of ring")
-		#newheader["cdelt3"] = (,"Ring increment")
-		#newheader["crota3"] = (mosaic.keyword["crota3"],"Ring rotation")
+		newheader["cdelt3"] = (1,"Ring increment")
+		newheader["crota3"] = (mosaic.keyword["crota3"],"Ring rotation")
 		
 		newheader["bunit"] = ("atoms cm-2","Map units")
 		newheader["datamin"] = ("%e"%amin(cubemap),"Min value")
 		newheader["datamax"] = ("%e"%amax(cubemap),"Max value")
 		newheader["object"] = ("Mosaic "+self.mosaic,self.survey+" Mosaic")
-			
+		
 		results = pyfits.PrimaryHDU(cubemap, newheader)
-    			
+    		results.scale('int16', '', bscale=mosaic.bscale, bzero=mosaic.bzero)
+		
+		# Create a Table with the annuli boundaries
+		col1 = pyfits.Column(name='Rmin', format='1E', unit='kpc', array=array(rmin))
+		col2 = pyfits.Column(name='Rmax', format='1E', unit='kpc', array=array(rmax))
+		cols = pyfits.ColDefs([col1,col2])
+		tbl = pyfits.new_table(cols)
+		tbl.name = "BINS"
+
+		thdulist = pyfits.HDUList([results,tbl])
+		
 		# Output file
 		self.logger.info("Write data to a fits file in...")
-		results.writeto(file, output_verify='fix')
+		thdulist.writeto(file, output_verify='fix')
 		self.logger.info("%s"%path)
 		self.logger.info("Done")
 	

@@ -228,6 +228,9 @@ class Mosaic(object):
 		# free memory
 		del f[0].data
 		
+		self.zmin = 0
+		self.zmax = 0
+		
 		if self.type == glob_Tb or self.type == glob_ITb:	
 			filter1 = self.observation < -1e4
 			filter2 = isnan(self.observation)
@@ -236,12 +239,20 @@ class Mosaic(object):
 			if self.keyword['NAXIS'] > 3:
 				if self.survey == 'CGPS':
 					if 'BAND' in self.keyword:
-						if self.keyword['BAND'] == 'HI':	
-							self.observation[:,:18,:,:] = 0.
-							self.observation[:,271,:,:] = 0.
-						#if self.keyword['BAND'] == 'CO':	
-							#self.observation[:,:23,:,:] = 0.
-							#self.observation[:,256:,:,:] = 0.
+						if self.keyword['BAND'] == 'HI':
+							self.zmin = 18
+							self.zmax = 271	
+							self.observation[:,:self.zmin,:,:] = 0.
+							self.observation[:,self.zmax:,:,:] = 0.
+						if self.keyword['BAND'] == 'CO':
+							self.zmin = 23
+							self.zmax = 256	
+							self.observation[:,:self.zmin,:,:] = 0.
+							self.observation[:,self.zmax:,:,:] = 0.
+				if self.survey == 'SGPS':
+	               			self.zmin = 1
+        	       			self.zmax = 410
+
 		
 		self.mosaic = mosaicConf['mosaic']
 		if not load:

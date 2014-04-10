@@ -17,7 +17,7 @@ from numpy.lib.stride_tricks import as_strided
 
 from scipy.signal import fftconvolve
 from scipy.optimize import fsolve
-import scipy.ndimage as ndimage
+from scipy import ndimage
 
 import pyfits
 
@@ -31,9 +31,9 @@ import pyfits
 #################################################
 # GLOBAL VARIABLES
 #################################################
-glob_Tb = 'brightness temperature'
+glob_Tb  = 'brightness temperature'
 glob_ITb = 'integrated brightness temperature'
-glob_N = 'column density'
+glob_N   = 'column density'
 
 #################################################
 #	START GENERAL FUNCTIONS
@@ -350,23 +350,154 @@ def find_ge(surveyLogger,a, x):
 		surveyLogger.critical("Cannot find the right annulus!")
 		raise ValueError
 
-# Moment Masking Routins
-def getRMS(surveyLogger,T):
+#################################################
+#	END GENERAL FUNCTIONS
+#################################################
+
+#################################################
+#	START MAP CORRECTIONS
+#################################################
+# CO corrections: Moment Masking Routins - Dame et al.
+def getRMS(surveyLogger,T,zmax):
 	
 	sigma_array = zeros(3,dtype=float)
 	# Compute the standard deviation along the specified axis:
 	# std = sqrt(mean(abs(x - x.mean())**2))
-	sigma_array[0] = mean(T[235,:,:]**2)#std(T[235,:,:])
-	sigma_array[1] = mean(T[240,:,:]**2)#std(T[240,:,:])
-	sigma_array[2] = mean(T[245,:,:]**2)#std(T[245,:,:])
+	sigma_array[0] = sqrt(mean(T[zmax-15,:,:]**2))#std(T[235,:,:])
+	sigma_array[1] = sqrt(mean(T[zmax-10,:,:]**2))#std(T[240,:,:])
+	sigma_array[2] = sqrt(mean(T[zmax-5,:,:]**2))#std(T[245,:,:])
 	rms = amin(sigma_array)
 	
 	surveyLogger.info("RMS = %s"%rms)
 	return rms
 
+# HI corrections
+def find_region(data, smooth_radius=5, threshold=0):
+	#data = ndimage.uniform_filter(data, smooth_radius)
+	mask = data < threshold
+	filled = ndimage.morphology.binary_fill_holes(mask)
+	coded_regions, num_regions = ndimage.label(filled)
+	data_slices = ndimage.find_objects(coded_regions)
+	#region = [data[x] for x in data_slices]
+	region = [coord for coord in data_slices]
+	#print num_regions
+	sizes = ndimage.sum(mask,coded_regions,range(num_regions+1))
+	#print sizes
+
+	ny = data.shape[0]
+	nx = data.shape[1]
+
+	# Degrading the resolution spatially and in velocity by a factor of 2
+	fwhm_spat = 2#1.5*size(reg) #px
+	sig = fwhm_spat/sqrt(8*log(2))
+
+	for x in region:
+		
+		a,b = (max(x[0].start-1,0),min(x[0].stop+1,ny-1))
+		c,d = (max(x[1].start-1,0),min(x[1].stop+1,nx-1))
+		
+		reg = zeros(size(data[a:b,c:d])+2)
+		#print reg.shape,data[a:b,c:d].shape
+		reg[1:-1] = data[a:b,c:d].flatten()
+		#print reg.flatten()
+		#exit(0)
+		
+		#reg = data[a:b,c:d].flatten()
+		pxmax = amax(reg)
+		rms = -10.
+		print pxmax,amin(reg)		
+		# Remove data holes by linear interpolation
+		idx = where(reg < rms)
+		cnt = size(idx[0])
+		
+		print idx,cnt
+		print reg
+		print sum(reg),mean(reg)
+		
+		print [i for i in xrange(cnt-2)]
+		#exit(0)
+		while(cnt>0):
+			print cnt
+			#print amin(reg)
+			tmp = 0.
+			for k in xrange(cnt):
+				i = idx[0][k]+1
+				# |x|o|o|o|
+				if(reg[i-1] > rms):
+					# |x|o|x|o|
+					if(reg[i+1] > rms):
+						# o(i) = (x+x)/2
+						tmp = 0.5*(reg[i-1]+reg[i+1])
+						#print tmp
+					else:
+						# o(i) = x(i-1)
+						tmp = reg[i-1]
+				else:
+					# |o|o|x|o|
+					if(reg[i+1] > rms):
+						# o(i) = x(i+1)
+						tmp = reg[i+1]
+					#else:
+					#	tmp = 0.5*(reg[i-1]+reg[i+1])
+
+				#print "%i) before: %.3f,%.3f,%.3f (tmp=%.3f)"%(k,reg[i-1],reg[i],reg[i+1],tmp)
+				reg[i] = tmp
+				#print "   after: %.3f,%.3f,%.3f (tmp=%.3f)"%(reg[i-1],reg[i],reg[i+1],tmp)
+
+			idx = where(reg < rms)
+			cnt = size(idx[0])
+			print idx,cnt
+			
+			if cnt == 4:
+				print reg
+				for k in xrange(cnt):
+					i = idx[0][k]+1
+					print i
+				exit(0)
+
+		exit(0)
+		kernel = size(reg)
+		print "kenrel %.i"%kernel
+		
+
+		y1 = a-kernel
+		y2 = b+kernel
+		x1 = c-kernel
+		x2 = d+kernel
+		
+		# if we are not out of the boundaries
+		if y1<0: y1=a
+		if y2>ny: y2=b
+		if x1<0: x1=c
+		if x2>nx: x2=d
+
+		print "[a,b] = [%i,%i]; [y1,y2] = [%i,%i]"%(a,b,y1,y2)
+		print "[c,d] = [%i,%i]; [x1,x2] = [%i,%i]"%(c,d,x1,x2)
+		
+		kregion = data[y1:y2,x1:x2]
+		newreg = ndimage.gaussian_filter(kregion,sigma=(sig,sig),order=(0,0))
+		#newreg = ndimage.median_filter(reg,size=4)
+		x1_data = ((x2-x1)-(d-c))/2
+		x2_data = x1_data + (d-c)
+		y1_data = ((y2-y1)-(b-a))/2
+		y2_data = y1_data + (b-a)
+		
+		print x1_data,x2_data,x2_data-x1_data
+		print y1_data,y2_data,y2_data-y1_data
+
+		print newreg[y1_data:y2_data,x1_data:x2_data]
+		print newreg[y1_data:y2_data,x1_data:x2_data].shape
+		print data[a:b,c:d]
+		print data[a:b,c:d].shape
+		
+		data[a:b,c:d] = newreg[y1_data:y2_data,x1_data:x2_data]
+		del newreg
+		del kregion
+		
+	return data
 		
 #################################################
-#	END GENERAL FUNCTIONS
+#	END MAP CORRECTIONS
 #################################################
 
 #################################################
@@ -537,7 +668,7 @@ def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
 		except ValueError:
 			surveyLogger.critical("The rotation curve doesn't contain the mosaic velocity!!")
 			surveyLogger.critical("i) [vmin,vmax] = [%.2f,%.2f], vmsc = %.2f"%(amin(vr),amax(vr),vlsr))
-			sys.exit(0)	
+			sys.exit(0)
 
 #################################################
 # END ROTATION CURVE
@@ -624,6 +755,31 @@ def polarMap():
 		verticalalignment='bottom',
 	)
 	show()
+
+def histT():
+	data  = Tb[0,50,:,:].flatten()
+	data1 = Tb[0,100,:,:].flatten()
+	data2 = Tb[0,150,:,:].flatten()
+	data3 = Tb[0,200,:,:].flatten()
+				
+	import matplotlib.mlab as mlab
+	import matplotlib.pyplot as plt
+	x = data2#[data,data1,data2,data3]
+	colors = ['black']#,'blue','green','red']
+	# the histogram of the data
+	n, bins, patches = plt.hist(x,500,normed=1,color=colors,alpha=0.75)
+				
+	# add a 'best fit' line
+	#y = data
+	#l = plt.plot(bins, y, 'r--', linewidth=1)
+				
+	plt.xlabel('T$_{b}$')
+	plt.ylabel('Counts')
+	plt.title(r'$\mathrm{Histogram\ of\ IQ:}\ \mu=100,\ \sigma=15$')
+	#plt.axis([amin(data), amax(data), 0, 0.1])
+	plt.grid(True)
+	plt.show()
+
 
 def plotNvsTs(surveyLogger,obs,utilsConf,plot,lon,lat):
 	"""
@@ -726,6 +882,7 @@ def getPath(surveyLogger, key="cgps_hi"):
 		return '/afs/ifh.de/group/that/work-sf/survey/rotcurve/'
 	
 	# TODO
+	#
 	#survey = survey_name
 	#sur = survey_name.lower()
 	#
@@ -1129,119 +1286,3 @@ def _quotefn(filename):
 		return "'" + filename + "'"
 
 
-
-#import numpy as np
-#cimport numpy as np
-#cimport cython
-
-#DTYPEf = np.float64
-#ctypedef np.float64_t DTYPEf_t
-
-#DTYPEi = np.int32
-#ctypedef np.int32_t DTYPEi_t
-
-#@cython.boundscheck(False) # turn of bounds-checking for entire function
-#@cython.wraparound(False) # turn of bounds-checking for entire function
-
-def replace_nans(array, max_iter, tol, kernel_size=1, method='localmean'):
-    """Replace NaN elements in an array using an iterative image inpainting algorithm.
-    The algorithm is the following:
-    1) For each element in the input array, replace it by a weighted average
-    of the neighbouring elements which are not NaN themselves. The weights depends
-    of the method type. If ``method=localmean`` weight are equal to 1/( (2*kernel_size+1)**2 -1 )
-    2) Several iterations are needed if there are adjacent NaN elements.
-    If this is the case, information is "spread" from the edges of the missing
-    regions iteratively, until the variation is below a certain threshold.
-    Parameters
-    ----------
-    array : 2d np.ndarray
-    an array containing NaN elements that have to be replaced
-    max_iter : int
-    the number of iterations
-    kernel_size : int
-    the size of the kernel, default is 1
-    method : str
-    the method used to replace invalid values. Valid options are
-    `localmean`.
-    Returns
-    -------
-    filled : 2d np.ndarray
-    a copy of the input array, where NaN elements have been replaced.
-    """
-    
-    #i, j, I, J, it, n, k, l
-    #n_invalids
-    
-    filled = empty( [array.shape[0], array.shape[1]], dtype=float)
-    kernel = empty( (2*kernel_size+1, 2*kernel_size+1), dtype=float)
-    
-    # indices where array is NaN
-    inans, jnans = nonzero(isnan(array))
-    
-    # number of NaN elements
-    n_nans = len(inans)
-    
-    # arrays which contain replaced values to check for convergence
-    replaced_new = zeros(n_nans, dtype=float)
-    replaced_old = zeros(n_nans, dtype=float)
-    
-    # depending on kernel type, fill kernel array
-    if method == 'localmean':
-        for i in range(2*kernel_size+1):
-            for j in range(2*kernel_size+1):
-                kernel[i,j] = 1.0
-    else:
-        raise ValueError( 'method not valid. Should be one of `localmean`.')
-    
-    # fill new array with input elements
-    for i in range(array.shape[0]):
-        for j in range(array.shape[1]):
-            filled[i,j] = array[i,j]
-
-    # make several passes
-    # until we reach convergence
-    for it in range(max_iter):
-        
-        # for each NaN element
-        for k in range(n_nans):
-            i = inans[k]
-            j = jnans[k]
-            
-            # initialize to zero
-            filled[i,j] = 0.0
-            n = 0
-            
-            # loop over the kernel
-            for I in range(2*kernel_size+1):
-                for J in range(2*kernel_size+1):
-                   
-                    # if we are not out of the boundaries
-                    if i+I-kernel_size < array.shape[0] and i+I-kernel_size >= 0:
-                        if j+J-kernel_size < array.shape[1] and j+J-kernel_size >= 0:
-                                                
-                            # if the neighbour element is not NaN itself.
-                            if filled[i+I-kernel_size, j+J-kernel_size] == filled[i+I-kernel_size, j+J-kernel_size] :
-                                
-                                # do not sum itself
-                                if I-kernel_size != 0 and J-kernel_size != 0:
-                                    
-                                    # convolve kernel with original array
-                                    filled[i,j] = filled[i,j] + filled[i+I-kernel_size, j+J-kernel_size]*kernel[I, J]
-                                    n = n + 1
-
-            # divide value by effective number of added elements
-            if n != 0:
-                filled[i,j] = filled[i,j] / n
-                replaced_new[k] = filled[i,j]
-            else:
-                filled[i,j] = nan
-                
-        # check if mean square difference between values of replaced
-        #elements is below a certain tolerance
-        if mean( (replaced_new-replaced_old)**2 ) < tol:
-            break
-        else:
-            for l in range(n_nans):
-                replaced_old[l] = replaced_new[l]
-    
-    return filled

@@ -258,7 +258,7 @@ def printCLIHelp():
 	print """
 				- Survey - 
 	
-	Perform Survey analysis for different emissions. 
+	Perform Survey analysis for different line emissions. 
 	You can use the command line functions listed below or run this module
 	from within python.
 	
@@ -300,7 +300,6 @@ def main():
 			elif opt in ('-a', '--analyze'):
 				if not haveMosaic: raise getopt.GetoptError("Must specify surveyname, printing help.")
 				mysurvey = Survey(surveyname, True)
-				#mysurvey.runAll(True) 
 				print "Analysis start here!!"        
 				return
 			elif opt in ('-i', '--initialize'):

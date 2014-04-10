@@ -77,18 +77,18 @@ class makeMosaic(object):
 			else:
 				z1 = float(z1)
 				z2 = float(z2)
-			z1_px = int(ceil(obs.keyword["crpix3"]-1.+(z1-obs.keyword["crval3"])/obs.keyword["cdelt3"]))
-			z2_px = int(ceil(obs.keyword["crpix3"]-1.+(z2-obs.keyword["crval3"])/obs.keyword["cdelt3"]))
+			z1_px = int(ceil(obs.z_px-1.+(z1-obs.z)/obs.dz))
+			z2_px = int(ceil(obs.z_px-1.+(z2-obs.z)/obs.dz))
 			
 			if lon == 'INDEF' and lat == 'INDEF':
-				lon = obs.keyword["crval1"]
-				lat = obs.keyword["crval2"]
+				lon = obs.x
+				lat = obs.y
 			else:
 				lon = float(lon) # deg
 				lat = float(lat) # deg
 			
 			if side == 'INDEF':
-				side = fabs(obs.keyword["naxis1"]*obs.keyword["cdelt1"])
+				side = fabs(obs.nx*obs.dx)
 			else:
 				side = float(side)/2.  # deg
 			
@@ -129,21 +129,21 @@ class makeMosaic(object):
 				newmosaic = obs.observation[z[0]-1:z[1],b[0]:b[1],l[0]:l[1]]
 				# Revert the longitude
 				newmosaic = newmosaic[:,:,::-1] #sintax [::-1] = [start:stop:step]
-				obs.keyword["cdelt1"] = sign[0]*obs.keyword["cdelt1"]
-				obs.keyword["cdelt2"] = sign[1]*obs.keyword["cdelt2"]
+				obs.dx = sign[0]*obs.dx
+				obs.dy = sign[1]*obs.dy
 			
 			# Write new header
 			newheader = pyfits.Header()
 			newheader["ctype1"] = ("GLON-CAR","Coordinate type")
 			newheader["crval1"] = (lon,"Galactic longitude of reference pixel")
 			newheader["crpix1"] = (crpix1,"Reference pixel of lon")
-			newheader["cdelt1"] = (obs.keyword["cdelt1"],"Longitude increment")
+			newheader["cdelt1"] = (obs.dx,"Longitude increment")
 			newheader["crota1"] = (obs.keyword["crota1"],"Longitude rotation")
 			newheader["cunit1"] = ("deg","Unit type")
 			newheader["ctype2"] = ("GLAT-CAR","Coordinate type")
 			newheader["crval2"] = (lat,"Galactic latitude of reference pixel")
 			newheader["crpix2"] = (crpix2,"Reference pixel of lat")
-			newheader["cdelt2"] = (obs.keyword["cdelt2"],"Latitude increment")
+			newheader["cdelt2"] = (obs.dy,"Latitude increment")
 			newheader["crota2"] = (obs.keyword["crota2"],"Latitude rotation")
 			newheader["cunit2"] = ("deg","Unit type")
 			
@@ -154,7 +154,7 @@ class makeMosaic(object):
 				newheader["ctype3"] = ("RingBand","Coordinate type")
 				newheader["crval3"] = (obs.zarray[z[0]-1],"Ring of reference pixel")
 				newheader["crpix3"] = (1,"Reference pixel of ring")
-				newheader["cdelt3"] = (obs.keyword["cdelt3"],"Ring increment")
+				newheader["cdelt3"] = (obs.dz,"Ring increment")
 				newheader["crota3"] = (obs.keyword["crota3"],"Ring rotation")
 				newheader["cunit3"] = ("ring num","Unit type")
 				newheader["bunit"]  = ("K km s-1","Map units")
@@ -162,7 +162,7 @@ class makeMosaic(object):
 				newheader["ctype3"] = ("VELO-LSR","Coordinate type")
 				newheader["crval3"] = (obs.zarray[z[0]-1],"Velocity of reference pixel")
 				newheader["crpix3"] = (1,"Reference pixel of vel")
-				newheader["cdelt3"] = (obs.keyword["cdelt3"],"Velocity increment")
+				newheader["cdelt3"] = (obs.dz,"Velocity increment")
 				newheader["crota3"] = (obs.keyword["crota3"],"Velocity rotation")
 				newheader["cunit3"] = ("m/s","Unit type")
 				newheader["bunit"]  = ("K","Map units")
@@ -186,64 +186,49 @@ class makeMosaic(object):
 			del obs.observation
 			dv = fabs(obs.dz/1000.) # [velocity] = km s-1
 			vel = obs.zarray/1000.
+			del obs.zarray
 			#print where(Tb[0,:,:,:]<-300)
 
-			dummy,z0,y0,x0 = where(Tb<0)
-			dx,dy = 5,5
-			
-			x1=where(x0-dx<0,0,x0-dx)
-			x2=where(x0+dx>obs.nx,x0,x0+dx)
-			
-			y1=where(y0-dy<0,0,y0-dy)
-			y2=where(y0-dy>obs.ny,y0,y0+dy)
-			
-			print x1
-			print x2
-			print len(x1),len(x2),len(y1),len(y2)
-			print len(x0),len(y0)
-			print len(z0)
-			#A = sum( Tb[dummy,z0,y1:y2,x1:x2] )
-			#Tb[0,z0,y0,x0] = A/(4*dx*dy)
-			replace_nans(Tb,1,1)
-			#movingaverage1D(array,w)
-			#		print x0[ix],y0[iy]
+			#getRMS(self.logger,Tb[0,:,:,:],obs.zmax)
+			myarray = find_region(Tb[0,130,:,:])
+			hdu = pyfits.PrimaryHDU(myarray)
+			hdu.writeto('corrected_gauss.fits')
 			exit(0)
+			
+			if(0):
+				
+				flag = where(Tb[0,:,:,:]<0,True,False).flatten()
+				
+				#mask = ma.masked_less(Tb[0,iz,:,:],0)
+				#print mask
+				data = Tb[0,:,:,:]
+				dim = len(data.shape)
+				slcs = [slice(None)]*dim
+				
+				while any(~flag): # as long as there are any False's in flag
+					for i in range(dim): # do each axis
+						print i
+						# make slices to shift view one element along the axis
+						slcs1 = slcs[:]
+						slcs2 = slcs[:]
+						slcs1[i] = slice(0, -1)
+						slcs2[i] = slice(1, None)
+						# replace from the right
+						repmask = logical_and(~flag[slcs1], flag[slcs2])
+						data[slcs1][repmask] = data[slcs2][repmask]
+						flag[slcs1][repmask] = True
+						# replace from the left
+						repmask = logical_and(~flag[slcs2], flag[slcs1])
+						data[slcs2][repmask] = data[slcs1][repmask]
+						flag[slcs2][repmask] = True
+				exit(0)
 
-			def histT():
-				data  = Tb[0,50,:,:].flatten()
-				data1 = Tb[0,100,:,:].flatten()
-				data2 = Tb[0,150,:,:].flatten()
-				data3 = Tb[0,200,:,:].flatten()
-				
-				import matplotlib.mlab as mlab
-				import matplotlib.pyplot as plt
-				x = data2#[data,data1,data2,data3]
-				colors = ['black']#,'blue','green','red']
-				# the histogram of the data
-				n, bins, patches = plt.hist(x,500,normed=1,color=colors,alpha=0.75)
-				
-				# add a 'best fit' line
-				#y = data
-				#l = plt.plot(bins, y, 'r--', linewidth=1)
-				
-				plt.xlabel('T$_{b}$')
-				plt.ylabel('Counts')
-				plt.title(r'$\mathrm{Histogram\ of\ IQ:}\ \mu=100,\ \sigma=15$')
-				#plt.axis([amin(data), amax(data), 0, 0.1])
-				plt.grid(True)
-				plt.show()
-
-			#exit(0)
 
 			if self.species == 'HI' or self.species == 'HISA':
 				
 				#filter1 = where(Tb < 0.)
 				#Tb[filter1] = 0.
 					
-				# Usefull velocity channels
-        	       		kmin = 18
-        	       		kmax = 271				
-				
 				path_data = getPath(self.logger, key="cgps_hisa_dat")
 				datafile = path_data+self.survey+'_'+self.mosaic+'_HISA.dat'		
 				checkForFiles(self.logger,[datafile])
@@ -280,7 +265,7 @@ class makeMosaic(object):
 				T = Tb[0,:,:,:]
 				
 				# Calculate the rms for raw data
-				rms_t = getRMS(self.logger,T)
+				rms_t = getRMS(self.logger,T,obs.zmax)
 				
 				# Degrading the resolution spatially and in velocity by a factor of 2
 				fwhm_spat = 2 #px
@@ -288,7 +273,7 @@ class makeMosaic(object):
 				Tsmooth = ndimage.gaussian_filter(T,sigma=(sig,sig,sig),order=(0,0,0))
 				
 				# Calculate the rms for smoothed data
-				rms_ts = getRMS(self.logger,Tsmooth)
+				rms_ts = getRMS(self.logger,Tsmooth,obs.zmax)
 				
 				# Set the clipping level equal 5 times the rms noise in Tsmooth
 				Tclipping = 5*rms_ts
@@ -302,6 +287,9 @@ class makeMosaic(object):
 				
 				# Calculate the moment-masked cube
 				Tb[0,:,:,:] = Mask*T
+				
+				del T
+				del Mask
 				
 			obs.keyword['datamin'] = amin(Tb)
 			obs.keyword['datamax'] = amax(Tb)
