@@ -54,13 +54,13 @@ class makeCorrection(object):
 		self.logger.info("Open file and get data...")
 		
 		# Array to store results
-		N = zeros((mosaic.keyword['naxis2'],mosaic.keyword['naxis1']),dtype=float)
+		N = zeros((mosaic.ny,mosaic.nx),dtype=float)
 		
-		Ts = float(utilsConf['tspin'])	  # [Excitation (or Spin) Temperature] = K (150)
-		Tbg = float(utilsConf['tcmb'])	  # [Cosmic Microwave Background (CMB)] = K
+		Ts = float(utilsConf['tspin'])	    # [Excitation (or Spin) Temperature] = K (150)
+		Tbg = float(utilsConf['tcmb'])	    # [Cosmic Microwave Background (CMB)] = K
 		if not self.species == 'WCO':
-			dv = fabs(mosaic.keyword['cdelt3']/1000.)	  # [velocity] = km s-1
-		C = float(utilsConf['c'])	  # [costant] = cm-2
+			dv = fabs(mosaic.dz/1000.)  # [velocity] = km s-1
+		C = float(utilsConf['c'])	    # [costant] = cm-2
 		
 		# Corrections for latitude (almost negligible)
 		cosdec = cos( radians(mosaic.yarray) ) # [lat. correction] = rad
@@ -159,7 +159,7 @@ class makeCorrection(object):
 				# HI Column Density						
 				if(not self.species == 'HISA') and (flagHI == True):
 
-					NHI = zeros((mosaic.keyword['naxis2'],mosaic.keyword['naxis1']),dtype=float)
+					NHI = zeros((mosaic.ny,mosaic.nx),dtype=float)
 					
 					self.logger.info("Initializing parameters...")
 					self.logger.info("1) Ts = %.2f K"%Ts)
@@ -310,7 +310,7 @@ class makeCorrection(object):
 				
 				# Get emission data and velocity interval
 				Tb = mosaic.observation[0,:,:,:]
-				wco = zeros((mosaic.keyword['naxis2'],mosaic.keyword['naxis1']),dtype=float)
+				wco = zeros((mosaic.ny,mosaic.nx),dtype=float)
 				wco = sum(Tb[kmin:kmax,:,:],axis=0)*dv
 				
 				# 2 accounts for the convertion from molecules to atoms

@@ -44,7 +44,7 @@ class testModule(object):
 		rmax = [1.5,2.,2.5,3.,3.5,4.,4.5,5.,5.5,6.5,7.,8.,10.,11.5,16.5,19.,50.]
 		ann_boundaries = []
 		
-		for a in range(0,annuli):
+		for a in xrange(0,annuli):
 			ann_boundaries.append([a,rmin[a],rmax[a]])
 		
 		nlon = mosaic.nx
@@ -74,12 +74,15 @@ class testModule(object):
 		# Computing Column Density
 		# Get HI emission data
 		Tb = mosaic.observation[0,:,:,:]
+		# free memory
+		del mosaic.observation
+
 		# Setting the negative/0-values to Tcmb 
 		#Tb = where( (Tb<0.) | (Tb==0.),Tbg,Tb)
 				
 		# HI Column Density						
-		NHI = zeros((annuli,nlat,nlon),dtype=float)
-		ITb = zeros((annuli,nlat,nlon),dtype=float)
+		#NHI = zeros((annuli,nlat,nlon),dtype=float)
+		#ITb = zeros((annuli,nlat,nlon),dtype=float)
 					
 		self.logger.info("Initializing parameters...")
 		self.logger.info("1) Ts = %.2f K"%Ts)
@@ -87,27 +90,21 @@ class testModule(object):
 		self.logger.info("3) Tb(min) = %.2f K, Tb(max) = %.2f K"%(amin(Tb),amax(Tb)))
 		#self.logger.info("4) Tc(min) = %.2f K, Tc(max) = %.2f K"%(amin(Tc),amax(Tc)))
 					
-		self.logger.info("Calculating NHI...")
-		# Optical depth correction
-		# With the continuum component
-		#Tfunc = (Ts-Tc)/(Ts-Tc-Tb)
-		# Without the continuum component
-		Tfunc = (Ts)/(Ts-Tb)
-					
-		Tfunc[Tfunc<1.] = 1. # <------ TO JUSTIFY
-		cTb = log(Tfunc) * Ts
+		self.logger.info("Calculating gas distribution...")
 					
 		#Limits: galactic longitude < |165 deg|, galactic latitude < |5 deg|.
 		path2 = getPath(self.logger,'rotcurve_mpohl')	
 	
 		# Read in SPH model results
 		# Get Bissantz's data
-		file = path2+'testvr1.dat'
-		input = open(file,'r')
+		file2 = path2+'testvr1.dat'
+		input = open(file2,'r')
 		bissantz = input.read().split()
 		n1 = 200
 		vrs = array(bissantz).reshape(n1,n1)
 		vrs = vrs.astype(float)
+		# free memory
+		del bissantz
 		#print vrs[100,98]  #-79.1474
 		#print vrs[100,99]  #-56.3561
 		#print vrs[100,100] #-25.6225
@@ -116,7 +113,7 @@ class testModule(object):
 		xa = -10.+0.1*(R+arange(n1))
 		ya = -10.+0.1*(R+arange(n1))
 		rb = zeros((n1,n1),dtype=float)
-		for i in range(0,n1-1):
+		for i in xrange(0,n1-1):
 			rb[:,i] = sqrt(xa[i]**2+ya**2)
 		ia = where(rb > 8.0)
 		vrs[ia] = 0.
@@ -133,7 +130,6 @@ class testModule(object):
 		ey_norm = ex_tan
 		xha = zeros(3800,dtype=int)
 		yha = zeros(3800,dtype=int)
-
 
 		# Line properties
 		sigma_co = 3.       #co velocity dispersion [km s-1]
@@ -168,8 +164,8 @@ class testModule(object):
 		warpc[0:53] = 0.
 	
 		# Read in rotation curve
-		file = path2+'rotcurv4.dat'
-		input = open(file,'r')
+		file3 = path2+'rotcurv4.dat'
+		input = open(file3,'r')
 		rotation = input.readlines() #4700 lines
 		rotc = zeros((len(rotation)),dtype=float)
 		drot = zeros((len(rotation)),dtype=float)
@@ -179,7 +175,9 @@ class testModule(object):
 			rotc[i] = float(value.split('\n')[0].split()[1])
 			drot[i] = float(value.split('\n')[0].split()[2])
 			i=i+1
-		
+		# free memory
+		del rotation
+
 		# Physical variables
 		r_sun = 8.    #kpc
 		z_sun = 0.015 #kpc
@@ -200,11 +198,11 @@ class testModule(object):
 		# Array definition
 		true_dis = dbin*(0.5+arange(N))
 		vbgr = zeros(N,dtype=float)
-				
-		for l in range(0,nlon):
+		
+		for l in xrange(0,nlon):
 			glo_deg = lon[l]
 			#vlsr = vel[v]/1000.
-			print "%i) longitude: %.3f"%(l,lon[l])
+			self.logger.info("%i) longitude: %.3f"%(l,lon[l]))
 			if (abs(glo_deg) < 165.):
 				glon = radians(glo_deg)
 				pmean = r_sun*cos(glon)
@@ -213,8 +211,8 @@ class testModule(object):
 				hzp = 12+radmin
 				hzc = dismin-hzp
 				hzd = dismin+hzp
-				for b in range(0,nlat):
-					print "  %i) latitude: %.3f"%(b,lat[b])
+				for b in xrange(0,nlat):
+					#print "  %i) latitude: %.3f"%(b,lat[b])
 					gla_deg = lat[b]
 					glat = radians(gla_deg)
 					vbgr[:] = 0.
@@ -250,7 +248,7 @@ class testModule(object):
 						
 						while(cnt>0):
 							vba[:] = 0.
-							for k in range(0,cnt):
+							for k in xrange(0,cnt):
 								ia = idx[0][k]+1
 								if(vbgr[ia-1] != 0.):
 									if(vbgr[ia+1] != 0.):
@@ -289,16 +287,17 @@ class testModule(object):
 					# Corrected, effective velocity: Equation (7)
 					veff = movingaverage1D(veff,7)-vpec
 					veff[-3:] = veff[-4]	
-					
+					#plotFunc(proj_dis,veff)
+
 					# Weights from delta veff
-					dveff = veff
-					dveff[N-1] = fabs(veff[N-1]-veff[N-2])
-					for i in range(0,N-2):
+					dveff = array(veff)
+					dveff[-1] = fabs(veff[-2]-veff[-1])
+					for i in range(0,N-1):
 						dveff[i] = fabs(veff[i+1]-veff[i])
 					weight_veff = zeros(veff.shape)
 					# Equation (14)
 					weight_veff = where((dveff+1.e-8)>dv,dv,dveff+1.e-8)
-					
+					#plotFunc(proj_dis,veff)
 					#print "dveff"
 					#print dveff[0:5]
 					#print "weight"
@@ -306,9 +305,6 @@ class testModule(object):
 					#exit(0)
 					
 					# Line spectrum
-					ia = where(Tb[:,b,l] < -1.e4)
-					cnt = size(ia[0])
-					if(cnt > 0.5): Tb[ia,b,l] = 0.
 					spec = array(nvel)
 					spec = Tb[:,b,l]
 					spec[0] = 0.
@@ -319,19 +315,19 @@ class testModule(object):
 					
 					wco = abs(dv*sum(spec))
 					wcb = wco/sigma_line
+
+					#plotFunc(proj_dis,veff)
 					
-					cnt = 0
 					# Start deconvolution
 					while(wco > residual_line):
 						
-						++cnt
-						ivmax = argmax(rspec)
-						vmax = vel[ivmax]
+						ivpeak = argmax(rspec)
+						vpeak = vel[ivpeak]
 						
-						amp = amp_frac*rspec[ivmax]
+						amp = amp_frac*rspec[ivpeak]
 						amp = where(wcb>amp,amp,wcb)
-						ivlow = ivmax-ivzero
-						ivhigh = ivmax+ivzero
+						ivlow = ivpeak-ivzero
+						ivhigh = ivpeak+ivzero
 						
 						if(ivlow > -0.5):
 							iv1 = 0 # hae = iv1; haf = iv2
@@ -350,49 +346,51 @@ class testModule(object):
 							ivlow = 0
 							sigma_line = fabs(dv*sum(line[iv1:iv2]))
 							sigma_line_inner = fabs(dv*sum(line_inner[iv1:iv2]))
-
-						# add W_co (= sigma_line*amp) to density vector
-						ivgood = where((vmax > veff) & (vmax < (veff+dveff)))
+						
+						# Finding a match between gas velocity and rotation curve
+						ivgood = where((vpeak > veff) & (vpeak < (veff+dveff)))
 						cnt_ivgood = size(ivgood[0])
+						#print cnt_ivgood
+						#print ivgood
+						#print veff[ivgood],vpeak,proj_dis[ivgood]
 						
-						# standard selection of locations
+						linevpeak = ones(veff.shape)*vpeak
+						#plotFunc(proj_dis[0:30],veff[0:30],veff[0:30]+dveff[0:30],linevpeak[0:30])
+						#exit(0)
 						
-						# finding a match between gas velocity and rotation curve
-						vlist = fabs(veff[0:dimax]-vmax)
+						# Standard selection of locations
 						
-						# checking if the matching gas velocity exceeds v offset or is in the inner Galaxy 
+						vlist = fabs(veff[0:dimax]-vpeak)
+						#plotFunc(proj_dis[0:dimax],veff[0:dimax],vlist[0:dimax],linevpeak[0:dimax])
+						
+						# Checking if the matching gas velocity exceeds v offset or is in the inner Galaxy 
 						if((min(vlist)>v_offset) and (abs(glo_deg)<lon_inner)):
-							vmatch = sort(vlist[hzc:hzd])+hzc
+							ivmatch = argsort(vlist[hzc:hzd])+hzc
 							#print,'corrected',v_match(0)
 						else:
-							vmatch = sort(vlist)
+							ivmatch = argsort(vlist)
 							#print,'non corrected',v_match(0)
 				
-						# The line signal is distributed among 8 solutions with weights determined by 3 factors
-						if(cnt_ivgood < 0.5):
+						# The line signal is distributed among 8 solutions with weights
+						if(cnt_ivgood < 1):
 							roots = 8 # eight kinematically best-fitting location
-							location = zeros(roots,dtype=float)
-							location[0:roots] = vmatch[0:roots]
+							ilocation = zeros(roots,dtype=float)
+							ilocation[0:roots] = ivmatch[0:roots]
 							ika = zeros(roots,dtype=int)
-							ika = (0.5*location-0.25).round()
+							ika = (0.5*ilocation-0.25).round()
 						else:
 							roots = cnt_ivgood+8
-							location = zeros(roots,dtype=float)
-							location[0:cnt_ivgood] = ivgood[0][0:cnt_ivgood]
-							location[cnt_ivgood:roots] = vmatch[0:8]
+							ilocation = zeros(roots,dtype=float)
+							ilocation[0:cnt_ivgood] = ivgood[0][0:cnt_ivgood]
+							ilocation[cnt_ivgood:roots] = ivmatch[0:8]
 							ika = zeros(roots,dtype=int)
-							ika = (0.5*location-0.25).round()
-							
-						#print roots
-						#print location
-						#print ika
-						#plotFunc(range(0,roots),location)
+							ika = (0.5*ilocation-0.25).round()
 						
 						# Weights from height above plane
 						wa = zeros(roots,dtype=float)
 						
-						for i in range(0,roots):
-							j = location[i]
+						for i in xrange(0,roots):
+							j = ilocation[i]
 							# Thickness of the gas layer - equation (15)
 							sigma_z = 1.204*((0.06-0.04*radi[j]/r_sun)+0.095*(radi[j]/r_sun)**2) # pc
 							zc = 0.
@@ -415,28 +413,44 @@ class testModule(object):
 							weight_k = exp(-0.5*(radi[j]/r_scale)**2)
 							
 							wa[i] = weight_veff[j]*weight_k*(1.+dz**2*(2.*arg_wz-1)/12.)*weight_z
-						
+
 						wgn = 0.
 						wtot = sum(wa)
 						#ika.astype(int)
 						
-						for i in range(0,roots):
-							j = ika[i]
-							#print j
-							if(radi[location[i]] < 1.): wgn += wa[i]/wtot
-							wga = wa[i]/wtot
-							#cubemap[j,b,l] += wga*amp*sigma_line
+						#print roots
+						#print ilocation[0:roots]
+						#print ivmatch[0:roots]
 						#exit(0)
+
+						# add W_co (= sigma_line*amp) to density vector
+						for i in xrange(0,roots):
+							#j = ika[i]
+							k = ilocation[i]
+							#print "k = %.3f j = %.3f"%(k,j)
+							#print "td = %.3f pd = %.3f"%(true_dis[k],proj_dis[k])
+							if(radi[k] < 1.): wgn += wa[i]/wtot
+							wga = wa[i]/wtot
+
+							for a in xrange(0,annuli):
+								if(proj_dis[k] > rmin[a]) and (proj_dis[k] < rmax[a]):
+									cubemap[a,b,l] += wga*amp*sigma_line
+									#print k,proj_dis[k],rmin[a],rmax[a],a
+								#else:
+									#print k
+						
+						#plotFunc(proj_dis[0:dimax],veff[0:dimax],vlist[0:dimax],linevpeak[0:dimax])
+						#exit(0)
+						
 						wgo = 1.-wgn
 						spec[ivlow:ivhigh] = spec[ivlow:ivhigh]-wgo*amp*line[iv1:iv2]-wgn*amp*line_inner[iv1:iv2]*sigma_line/sigma_line_inner
 						rspec = fftconvolve(spec,lim,'same')
 						wco = fabs(dv*sum(spec))
 						wcb = wco/sigma_line
 						
-						if not wco%10:
-							print wco,wcb,sigma_line
-							plotFunc(vel,rspec)
-						
+						#if not wco%10:
+						#print wco,wcb,sigma_line
+						#plotFunc(vel,rspec)
 						#exit(0)
 				
 				#densi[b,l,379] = 0.
@@ -450,8 +464,8 @@ class testModule(object):
 					#		self.logger.info("(l,b) = (%i,%i) - lon=%.3f lat=%.3f d=%.1f ring=%i i=%i"%(l,b,glon,glat,d,annulus,i))
 				
 		# Column density
-		NHI = C*ITb*dv # [NHI] = cm-2
-		cubemap = NHI*cosdec
+		#NHI = C*ITb*dv # [NHI] = cm-2
+		#cubemap = NHI*cosdec
 		#exit(0)
 
 		# Store results

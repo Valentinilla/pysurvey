@@ -182,8 +182,59 @@ class makeMosaic(object):
 			
 			# Get emission data and velocity interval
 			Tb = obs.observation[:,:,:,:]
-			dv = fabs(obs.keyword['cdelt3']/1000.) # [velocity] = km s-1
+			# free memory
+			del obs.observation
+			dv = fabs(obs.dz/1000.) # [velocity] = km s-1
+			vel = obs.zarray/1000.
+			#print where(Tb[0,:,:,:]<-300)
+
+			dummy,z0,y0,x0 = where(Tb<0)
+			dx,dy = 5,5
 			
+			x1=where(x0-dx<0,0,x0-dx)
+			x2=where(x0+dx>obs.nx,x0,x0+dx)
+			
+			y1=where(y0-dy<0,0,y0-dy)
+			y2=where(y0-dy>obs.ny,y0,y0+dy)
+			
+			print x1
+			print x2
+			print len(x1),len(x2),len(y1),len(y2)
+			print len(x0),len(y0)
+			print len(z0)
+			#A = sum( Tb[dummy,z0,y1:y2,x1:x2] )
+			#Tb[0,z0,y0,x0] = A/(4*dx*dy)
+			replace_nans(Tb,1,1)
+			#movingaverage1D(array,w)
+			#		print x0[ix],y0[iy]
+			exit(0)
+
+			def histT():
+				data  = Tb[0,50,:,:].flatten()
+				data1 = Tb[0,100,:,:].flatten()
+				data2 = Tb[0,150,:,:].flatten()
+				data3 = Tb[0,200,:,:].flatten()
+				
+				import matplotlib.mlab as mlab
+				import matplotlib.pyplot as plt
+				x = data2#[data,data1,data2,data3]
+				colors = ['black']#,'blue','green','red']
+				# the histogram of the data
+				n, bins, patches = plt.hist(x,500,normed=1,color=colors,alpha=0.75)
+				
+				# add a 'best fit' line
+				#y = data
+				#l = plt.plot(bins, y, 'r--', linewidth=1)
+				
+				plt.xlabel('T$_{b}$')
+				plt.ylabel('Counts')
+				plt.title(r'$\mathrm{Histogram\ of\ IQ:}\ \mu=100,\ \sigma=15$')
+				#plt.axis([amin(data), amax(data), 0, 0.1])
+				plt.grid(True)
+				plt.show()
+
+			#exit(0)
+
 			if self.species == 'HI' or self.species == 'HISA':
 				
 				#filter1 = where(Tb < 0.)
@@ -198,9 +249,6 @@ class makeMosaic(object):
 				checkForFiles(self.logger,[datafile])
 				input = open(datafile,"r")
 				lines = input.readlines()
-							
-				if self.species == 'HISA':
-					result_array = zeros(Tb.shape,float)
 				
 				for line in lines:
 					na = float(line.split('\n')[0].split()[0]) # HISA region
@@ -218,25 +266,14 @@ class makeMosaic(object):
 						#if type == 'unabsorbed brightness temperature':
 						#	result_array[0,m,l,k] = nc #Tb[0,m,l,k]-nd
 						#elif type == 'amplitude':
-						result_array[0,m,l,k] = abs(nd)
+						#result_array[0,m,l,k] = abs(nd)
+						Tb[0,m,l,k] = abs(nd)
 					elif self.species == 'HI':
 						#if type == 'unabsorbed brightness temperature':
 						Tb[0,m,l,k] = nc #Tb[0,m,l,k]-nd
 						#if type == 'amplitude':
 						#	Tb[0,m,l,k] = nd #Tb[0,m,l,k]-nd
-				
-			if self.species == 'HISA':
-				obs.keyword['datamin'] = amin(result_array)
-				obs.keyword['datamax'] = amax(result_array)
-				results = pyfits.PrimaryHDU(result_array,obs.keyword)
-				results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)
-			
-			elif self.species == 'HI':
-				obs.keyword['datamin'] = amin(Tb)
-				obs.keyword['datamax'] = amax(Tb)
-				results = pyfits.PrimaryHDU(Tb,obs.keyword)
-				results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)
-			
+											
 			elif self.species == 'CO':
 				
 				self.logger.info("Applying Moment Mask method (T.M.Dame)...")
@@ -266,12 +303,12 @@ class makeMosaic(object):
 				# Calculate the moment-masked cube
 				Tb[0,:,:,:] = Mask*T
 				
-				obs.keyword['datamin'] = amin(Tb)
-				obs.keyword['datamax'] = amax(Tb)
+			obs.keyword['datamin'] = amin(Tb)
+			obs.keyword['datamax'] = amax(Tb)
 				
-				results = pyfits.PrimaryHDU(Tb,obs.keyword)
-				results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)		
-		
+			results = pyfits.PrimaryHDU(Tb,obs.keyword)
+			results.scale('int16', '', bscale=obs.bscale, bzero=obs.bzero)		
+				
 		# Output file
 		self.logger.info("Write scaled data to a fits file in...")
 		results.writeto(file, output_verify='fix')

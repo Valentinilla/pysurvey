@@ -225,6 +225,8 @@ class Mosaic(object):
 				self.logger.critical("Some keyword missing. 3rd axis array cannot be built.")
 		
 		self.observation = f[0].data
+		# free memory
+		del f[0].data
 		
 		if self.type == glob_Tb or self.type == glob_ITb:	
 			filter1 = self.observation < -1e4
