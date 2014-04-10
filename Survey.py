@@ -19,12 +19,15 @@ class Survey:
 	
 	def __init__(self, survey='MySurvey', species='HI', mosaic='skymap', configFile = False, 
 		surveyConfig = {'survey':'MySurvey','species':'HI'},
-		mosaicConfig = {'mosaic':'skymap','lon':0,'lat':0,'vel1':0,'vel2':0,'side':0},
-		utilsConfig = {'c':1.823e18,'pc2cm':3.08567758e18,'tcmb':2.7,'poverk':4000.,
+		mosaicConfig = {'mosaic':'skymap','lon':'INDEF','lat':'INDEF','vel1':'INDEF','vel2':'INDEF','side':'INDEF'},
+		utilsConfig = {'tcmb':2.7, # Cosmic Microwave Background temperature (K)
+		'tspin':150., # Excitation or Spin temperature (K)
+		'xfactor':2.3e20, # Standard CO Factor: X=NH2/Wco (K-1 cm-2 km-1 s)
+		'c':1.823e18, # Costant (cm-2)
+		'pc2cm':3.08567758e18, # Conversion factor from pc to cm (cm)
+		'poverk':4000.,
 		'p':1.0, # Fraction of HI emission originating behind the HISA cloud
-		'fn':1.0, # Fraction of particle density contributed by the HISA gas, fn = n_hisa/n_tot
-		'tspin':150., # Spin temperature
-		'xfactor':2.3e20}, # Standard CO Factor (X=NH2/Wco)
+		'fn':1.0}, # Fraction of particle density contributed by the HISA gas, fn = n_hisa/n_tot
 		spectralConfig = {"n_spectral" : 7, #size of box for spectral smoothing
 		"max_loops" : 1000,#maximum number of CLEAN iterations
 		"residual_frac" : 0.03,#residual fraction of smoothed for CLEAN cutoff
@@ -56,8 +59,8 @@ class Survey:
 		surveyConfig['survey'] = survey
 		surveyConfig['species'] = species
 		mosaicConfig['mosaic'] = mosaic
-		self.logger = initLogger(mosaic,survey+'_'+species+'_Analysis')
-
+		
+		self.logger = initLogger(survey+'_'+mosaic+'_'+species+'_Analysis')
 		self.configfilename = 'config/'+survey+'_'+mosaic
 
 		if(configFile):
@@ -165,7 +168,7 @@ class Survey:
 		try:
 			self.mosaic
  		except AttributeError:
-			self.logger.critical("Mosaic object does not exist. Create it first with the loadMap function.")
+			self.logger.critical("Mosaic object "+species+" does not exist. Create it first with the loadMap function.")
 			return
 		try:
 			self.coldens = makeCorrection(self.mosaic,self.mosaicConf,self.utilsConf)
@@ -219,7 +222,6 @@ class Survey:
 		checkForFiles(self.logger,[filename])
 		self.logger.info('Removing file: '+filename)
 		os.remove(filename)
-
 
 def printCLIHelp():
     	"""

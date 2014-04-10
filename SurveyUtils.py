@@ -16,10 +16,10 @@ from lmfit.printfuncs import*
 from numpy import *
 from numpy.lib.stride_tricks import as_strided
 from scipy.signal import fftconvolve
-
+import scipy.ndimage as ndimage
 
 #################################################
-#		LAB Survey
+#	LAB Survey
 #################################################
 def getMosaicCoordinate(obs,lon,lat,side):
 	"""
@@ -69,10 +69,12 @@ def getMosaicCoordinate(obs,lon,lat,side):
 
 
 #################################################
-#		END LAB Survey
+#	END LAB Survey
 #################################################
 
-
+#################################################
+#	START GENERAL FUNCTIONS
+#################################################
 def get_nth_maxvalue(a, nth):
 	b = a.flatten()
 	res_sort = sort(b)
@@ -110,6 +112,36 @@ def spatialAverage1D(array,i,j,n_spec): #7px
 			#print array[k,j1:j2,i1:i2].shape
 	return smoothed
 
+def extrap(x, xp, yp):
+	"""
+	numpy.interp function with linear extrapolation
+	"""
+	y = interp(x, xp, yp)
+	y[x < xp[0]] = yp[0] + (x-xp[0]) * (yp[0]-yp[1]) / (xp[0]-xp[1])
+	y[x > xp[-1]] = yp[-1] + (x-xp[-1]) * (yp[-1]-yp[-2]) / (xp[-1]-xp[-2])
+	return y
+
+# Moment Masking Routins
+def getRMS(surveyLogger,T):
+	
+	sigma_array = zeros(3,dtype=float)
+	# Compute the standard deviation along the specified axis:
+	# std = sqrt(mean(abs(x - x.mean())**2))
+	sigma_array[0] = mean(T[235,:,:]**2)#std(T[235,:,:])
+	sigma_array[1] = mean(T[240,:,:]**2)#std(T[240,:,:])
+	sigma_array[2] = mean(T[245,:,:]**2)#std(T[245,:,:])
+	rms = amin(sigma_array)
+	
+	surveyLogger.info("RMS = %s"%rms)
+	return rms
+
+#################################################
+#	END GENERAL FUNCTIONS
+#################################################
+
+#################################################
+#	START ROTATION CURVE
+#################################################
 def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
 	"""
 	Rotation curve of the Galaxy - M.Pohl, P.Englmaier, and N.Bissantz
@@ -173,9 +205,10 @@ def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
 	z_sun = 0.015 #kpc
 	v_sun = 210.  #km s-1
 	
-	#glo=lon(gl)+1.d-6
-	#gla=lat(gbo)
-	
+	#glo_deg = 30.
+	#glat_deg = 0.
+	#vlsr = -10.
+
 	if (abs(glo_deg) < 165.):
 		glon = glo_deg*pi/180.
 		glat = gla_deg*pi/180.
@@ -256,8 +289,9 @@ def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
 		vr = v_lsr+(vbgr-v_lsr)*where(wradi>1.,1.,wradi)		
 		# Corrected, effective velocity: Equation (7)
 		vr = movingaverage1D(vr,7)-vpec
+		vr[-3:] = vr[-4]
+		#extrap(vr, proj_dis, yp)
 		#plotFunc(proj_dis,vr)
-		#print amin(vr),amax(vr)
 		
 		try:
 			i = 0
@@ -272,15 +306,17 @@ def rotCurveMPohl(surveyLogger,glo_deg,gla_deg,vlsr):
 			radius = proj_dis[min(diff)[1]]
 			return radius # kpc
 		except ValueError:
-			surveyLogger.critical("The rotation curve doesn't contain the")
-			surveyLogger.critical("vlsr value of the mosaic!!")
-			surveyLogger.critical("...[vrot_min, vrot_max] = [%.2f,%.2f]"%(amin(vr),amax(vr)))
-			surveyLogger.critical("...vlsr_msc = %.2f"%vlsr)
+			surveyLogger.critical("The rotation curve doesn't contain the vlsr value of the mosaic!!")
+			surveyLogger.critical("i) [vrot_min, vrot_max] = [%.2f,%.2f], vlsr_msc = %.2f"%(amin(vr),amax(vr),vlsr))
 			sys.exit(0)	
 
-#--------------------------------
+#################################################
+# END ROTATION CURVE
+#################################################
+
+#################################################
 # START PLOTTING FUNCTIONS
-#--------------------------------
+#################################################
 def plotFunc(x,*func):
 	import matplotlib.pyplot as plt
 	n = len(func)
@@ -335,9 +371,35 @@ def plotFunc2D(x,y,f):
 	#cbar.ax.set_xticklabels(['Low', 'Medium', 'High'])
 	plt.show()
 
-#--------------------------------
-# END ANALYSIS AREA
-#--------------------------------
+def polarMap():
+	from matplotlib.pyplot import figure, show
+	
+	fig = figure()
+	ax = fig.add_subplot(111, polar=True)
+	#r = arange(0,1,0.001)
+	#theta = 2*2*pi*r
+	r = 0.2249
+	theta = 122.98
+	line, = ax.plot(theta, r, color='#ee8d18', lw=3)
+	
+	#ind = 800
+	thisr, thistheta = r,theta#r[ind], theta[ind]
+	ax.plot([thistheta], [thisr], 'o')
+	ax.set_rmax(20.0)
+	ax.annotate('a polar annotation',
+		xy=(thistheta, thisr),  # theta, radius
+		xytext=(0., 35),    # fraction, fraction
+		textcoords='figure fraction',
+		arrowprops=dict(facecolor='black', shrink=0.05),
+		horizontalalignment='left',
+		verticalalignment='bottom',
+	)
+	show()
+
+#################################################
+# END PLOTTING FUNCTIONS
+#################################################
+
 
 class FileNotFound: pass
 class CommandNotFound: pass
@@ -428,6 +490,16 @@ def getPath(surveyLogger, key="cgps_hi"):
 		surveyLogger.critical("Path '%s' doesn't exist."%key)
 		raise FileNotFound
 
+#--------------------------------
+# ERROR MSG FUNCTION
+#--------------------------------
+def typeErrorMsg(surveyLogger,type,typeEntry='HI'):
+	if typeEntry=='HI' or typeEntry=='HISA' or typeEntry=='CO':
+		msg = "Allowed types are: 'brightness temperature', and 'column density'. Your entry is: '%s'."%type
+	elif typeEntry=='HI+HISA' or typeEntry=='HI+CO' or typeEntry=='HI+HISA+CO':
+		msg = "Allowed type is only 'column density'. Your entry is: '%s'."%type
+	
+	surveyLogger.critical(msg)
 
 def checkForFiles(surveyLogger, fileList, existence=False):
 	"""
@@ -438,7 +510,7 @@ def checkForFiles(surveyLogger, fileList, existence=False):
 			surveyLogger.critical(filename+" doesn't exist.")
 			raise FileNotFound
 		elif os.path.exists(filename) and existence:
-			surveyLogger.critical(filename+" already exist.")
+			surveyLogger.critical(filename+" already exists.")
 			raise FileNotFound
 
 def checkForCommand(surveyLogger, commandList):
@@ -575,15 +647,15 @@ def Print(surveyLogger,configfile,label):
 		logString = "%s) %s = %s"%(i,variable,value)
 		surveyLogger.info(logString)
 
-def initLogger(mosaic, name):
+def initLogger(name):
 	"""
 	Sets up and returns a properly configured logging object.
 	"""
 	surveyLogger = logging.getLogger(name)
 	surveyLogger.setLevel(logging.DEBUG)
-	#Prevents duplicate log entries after reinitialization.                                                        
+	# Prevents duplicate log entries after reinitialization.                                                        
 	if(not surveyLogger.handlers):
-		fh = logging.FileHandler('logdir/'+mosaic+'_'+name+'.log')
+		fh = logging.FileHandler('logdir/'+name+'.log')
 		fh.setLevel(logging.DEBUG)
 		ch = logging.StreamHandler()
 		ch.setLevel(logging.DEBUG)

@@ -19,7 +19,7 @@ class makeMosaic(object):
 		self.species = obs.species
 		self.type = obs.type
 
-		self.logger = initLogger(self.mosaic, self.survey+'_GenerateMosaic')
+		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_GenerateMosaic')
 		path = ''
 		if self.survey == 'LAB':
 			path = getPath(self.logger, key="lustre_lab")
@@ -28,21 +28,22 @@ class makeMosaic(object):
 				flag = 'HI'
 
 		else:
-			if self.species == 'HISA':
-				if self.survey == 'CGPS':
-					path = getPath(self.logger, key="lustre_cgps_hisa")
-				if self.survey == 'SGPS':
-					path = getPath(self.logger, key="lustre_sgps_hisa")
-				flag = 'HISA'
-			elif self.species == 'HI':
+			if self.species == 'HI':
 				if self.survey == 'CGPS':
 					path = getPath(self.logger, key="lustre_cgps_hi")
 				if self.survey == 'SGPS':
 					path = getPath(self.logger, key="lustre_sgps_hi")
 				flag = 'HI_unabsorbed'
+			elif self.species == 'HISA':
+				if self.survey == 'CGPS':
+					path = getPath(self.logger, key="lustre_cgps_hisa")
+				if self.survey == 'SGPS':
+					path = getPath(self.logger, key="lustre_sgps_hisa")
+				flag = 'HISA'
 			elif self.species == 'CO':
 				path = getPath(self.logger, key="lustre_cgps_co")
-				flag = 'WCO'
+				flag = 'CO'
+
 		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_line.fits'
 		checkForFiles(self.logger,[file],existence=True)
 
@@ -51,18 +52,38 @@ class makeMosaic(object):
 		if self.survey == 'LAB' or self.survey == 'SGPS':
 
 			self.mosaic = mosaicConf['mosaic']
-			lon = float(mosaicConf['lon']) # deg
-			lat = float(mosaicConf['lat']) # deg
+			lon = mosaicConf['lon'] # deg
+			lat = mosaicConf['lat'] # deg
 			v1 = mosaicConf['vel1'] # km/s
 			v2 = mosaicConf['vel2'] # km/s
+			side = mosaicConf['side']
 			
+			#mosaic = MW2
+			#lon = 140.75
+			#lat = 3.0
+			#vel1= 286
+			#vel2= 503
+			#side = 5.12
+
 			if v1 == 'INDEF' and v2 == 'INDEF':
 				v1 = amin(obs.vel_array)
 				v2 = amax(obs.vel_array)
 			else:
-				v1 = float(v1) #km/s
-				v2 = float(v2) #km/s
+				v1 = float(v1) # km/s
+				v2 = float(v2) # km/s
 			
+			if lon == 'INDEF' and lat == 'INDEF':
+				lon = obs.msc_ref_lon
+				lat = obs.msc_ref_lat
+			else:
+				lon = float(lon) # deg
+				lat = float(lat) # deg
+			
+			if side == 'INDEF':
+				side = fabs(obs.msc_lon*obs.msc_del_lon)
+			else:
+				side = float(side)/2.  # deg
+
 			v1_px = int(round(obs.msc_ind_vel-1.+(v1-obs.msc_ref_vel)/obs.msc_del_vel))
 			v2_px = int(round(obs.msc_ind_vel-1.+(v2-obs.msc_ref_vel)/obs.msc_del_vel))
 			#print v1_px,v2_px
@@ -172,15 +193,16 @@ class makeMosaic(object):
 			# Get emission data and velocity interval
 			Tb = obs.observation[:,:,:,:]
 			dv = fabs(obs.msc_del_vel) # [velocity] = km s-1
-			filter1 = where(Tb < 0.)
-			Tb[filter1] = 0.
-	
-			# Usefull velocity channels
-        	       	kmin = 18
-        	       	kmax = 271
-	
-			if self.species == 'HI' or self.species == 'HISA':
 			
+			if self.species == 'HI' or self.species == 'HISA':
+				
+				filter1 = where(Tb < 0.)
+				Tb[filter1] = 0.
+					
+				# Usefull velocity channels
+        	       		kmin = 18
+        	       		kmax = 271				
+				
 				path = getPath(self.logger, key="cgps_hisa_dat")
 				datafile = path+self.survey+'_'+self.mosaic+'_HISA.dat'		
 				checkForFiles(self.logger,[datafile])
@@ -226,28 +248,61 @@ class makeMosaic(object):
 				results.scale('int16', '', bscale=obs.msc_bscale, bzero=obs.msc_bzero)
 			
 			elif self.species == 'CO':
-				wco = zeros((obs.msc_lat,obs.msc_lon),dtype=float)
-				wco = sum(Tb[0,kmin:kmax,:,:],axis=0)*dv
 				
+				self.logger.info("Applying Moment Mask method (T.M.Dame)...")
+				T = Tb[0,:,:,:]
+				
+				# Calculate the rms for raw data
+				rms_t = getRMS(self.logger,T)
+				
+				# Degrading the resolution spatially and in velocity by a factor of 2
+				fwhm_spat = 2 #px
+				sig = fwhm_spat/sqrt(8*log(2))
+				Tsmooth = ndimage.gaussian_filter(T,sigma=(sig,sig,sig),order=(0,0,0))
+				
+				# Calculate the rms for smoothed data
+				rms_ts = getRMS(self.logger,Tsmooth)
+				
+				# Set the clipping level equal 5 times the rms noise in Tsmooth
+				Tclipping = 5*rms_ts
+				
+				# Generate a masking cube initially filled with zeros with the same dimensions as Tb
+				Mask = zeros(Tsmooth.shape)
+				
+				# Unmask the pixel with a value > Tclipping
+				index = where(Tsmooth>Tclipping)
+				Mask[index] = 1
+				
+				# Calculate the moment-masked cube
+				Tb[0,:,:,:] = Mask*T
+				
+				obs.header['DATAMIN'] = amin(Tb)
+				obs.header['DATAMAX'] = amax(Tb)
+				
+				results = pyfits.PrimaryHDU(Tb,obs.header)
+				results.scale('int16', '', bscale=obs.msc_bscale, bzero=obs.msc_bzero)
+				
+				#wco = zeros((obs.msc_lat,obs.msc_lon),dtype=float)
+				#wco = sum(Tb[0,kmin:kmax,:,:],axis=0)*dv
 				# Write new header
-				newheader = pyfits.Header()
-				newheader.update(key="ctype1", value="GLON-CAR", comment="Coordinate type")
-				newheader.update(key="crval1", value=obs.msc_ref_lon, comment="Galactic longitude of reference pixel")
-				newheader.update(key="crpix1", value=obs.msc_ind_lon, comment="Reference pixel in lon")
-				newheader.update(key="cdelt1", value=obs.msc_del_lon, comment="Longitude increment")
-				newheader.update(key="crota1", value=obs.msc_rot_lon, comment="Longitude rotation")
-				newheader.update(key="cunit1", value="deg", comment="Unit type")
-				newheader.update(key="ctype2", value="GLAT-CAR", comment="Coordinate type")
-				newheader.update(key="crval2", value=obs.msc_ref_lat, comment="Galactic latitude of reference pixel")
-				newheader.update(key="crpix2", value=obs.msc_ind_lat, comment="Reference pixel in lat")
-				newheader.update(key="cdelt2", value=obs.msc_del_lat, comment="Latitude increment")
-				newheader.update(key="crota2", value=obs.msc_rot_lat, comment="Latitude rotation")
-				newheader.update(key="cunit2", value="deg", comment="Unit type")
-				newheader.update(key="bunit", value="K km s-1", comment="Map units")
-				newheader.update(key="datamin", value="%e"%amin(wco))
-				newheader.update(key="datamax", value="%e"%amax(wco))
-				newheader.update(key="object", value="Mosaic "+self.mosaic, comment=self.survey+" Mosaic")
-				results = pyfits.PrimaryHDU(wco, newheader)			
+				#newheader = pyfits.Header()
+				#newheader.update(key="ctype1", value="GLON-CAR", comment="Coordinate type")
+				#newheader.update(key="crval1", value=obs.msc_ref_lon, comment="Galactic longitude of reference pixel")
+				#newheader.update(key="crpix1", value=obs.msc_ind_lon, comment="Reference pixel in lon")
+				#newheader.update(key="cdelt1", value=obs.msc_del_lon, comment="Longitude increment")
+				#newheader.update(key="crota1", value=obs.msc_rot_lon, comment="Longitude rotation")
+				#newheader.update(key="cunit1", value="deg", comment="Unit type")
+				#newheader.update(key="ctype2", value="GLAT-CAR", comment="Coordinate type")
+				#newheader.update(key="crval2", value=obs.msc_ref_lat, comment="Galactic latitude of reference pixel")
+				#newheader.update(key="crpix2", value=obs.msc_ind_lat, comment="Reference pixel in lat")
+				#newheader.update(key="cdelt2", value=obs.msc_del_lat, comment="Latitude increment")
+				#newheader.update(key="crota2", value=obs.msc_rot_lat, comment="Latitude rotation")
+				#newheader.update(key="cunit2", value="deg", comment="Unit type")
+				#newheader.update(key="bunit", value="K km s-1", comment="Map units")
+				#newheader.update(key="datamin", value="%e"%amin(wco))
+				#newheader.update(key="datamax", value="%e"%amax(wco))
+				#newheader.update(key="object", value="Mosaic "+self.mosaic, comment=self.survey+" Mosaic")
+				#results = pyfits.PrimaryHDU(wco, newheader)			
 		
 		# Output file
 		self.logger.info("Write scaled data to a fits file in...")

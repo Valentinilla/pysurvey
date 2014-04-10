@@ -22,11 +22,11 @@ class Mosaic(object):
 		self.survey = surveyConf['survey']
 		self.mosaic = mosaicConf['mosaic']
 		self.species = species
-		if species == '':
+		if self.species == '':
 			self.species = surveyConf['species']
 		self.type = type
 
-		self.logger = initLogger(self.mosaic,self.survey+'_Mosaic')
+		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_Mosaic')
 
 		# Select the file according to Survey and Mosaic
 		path = ''
@@ -37,6 +37,7 @@ class Mosaic(object):
 		if self.survey == 'SGPS':
 			sur = 'sgps'
 		
+		flag = ''
 		if self.survey == 'LAB':
 			# If LAB
 			if self.species == 'HI':
@@ -52,11 +53,9 @@ class Mosaic(object):
 						path = getPath(self.logger, key='lustre_lab_hi_column_density')
 						flag = self.species+'_'+'column_density'
 					else:
-						self.logger.critical("The only allowed types are: 'brightness temperature',")
-						self.logger.critical("and 'column density'.")
+						typeErrorMsg(self.logger,self.type)
 			else:
 				self.logger.critical("Only HI species available for "+self.survey+" survey.")
-				return
 		else:
 			if not load:
 				if self.species == 'HI':
@@ -76,8 +75,8 @@ class Mosaic(object):
 						path = getPath(self.logger, key='lustre_'+sur+'_hi_column_density')
 						flag = self.species+'_'+'unabsorbed_column_density'
 					else:
-						self.logger.critical("The only allowed types are: 'brightness temperature',")
-						self.logger.critical("and 'column density'.")
+						typeErrorMsg(self.logger,self.type)
+				
 				elif self.species == 'HISA':				
 					if self.type == 'brightness temperature':
 						path = getPath(self.logger, key='lustre_'+sur+'_hisa')
@@ -86,32 +85,39 @@ class Mosaic(object):
 						path = getPath(self.logger, key='lustre_'+sur+'_hisa_column_density')
 						flag = self.species+'_'+'column_density'
 					else:
-						self.logger.critical("The only allowed types are: 'brightness temperature',")
-						self.logger.critical("and 'column density'.")
-				elif self.species == 'HI+HISA':				
-					if self.type == 'brightness temperature':
-						self.logger.warning("This request is equivalent to load the original data!!")
-						self.logger.warning("Tb(HI) + Tb(HISA) = T("+self.survey+")")
-						self.logger.warning("The orignal survey data will be used...")
-						path = getPath(self.logger, key=sur+'_hi')
-						flag = self.species+'_'+'line_image'
-					elif self.type == 'column density':
+						typeErrorMsg(self.logger,self.type)
+				
+				elif self.species == 'HI+HISA':
+					if self.type == 'column density':
 						path = getPath(self.logger, key='lustre_'+sur+'_hi_column_density')
 						flag = self.species+'_'+'column_density'
 					else:
-						self.logger.critical("The only allowed types are: 'brightness temperature',")
-						self.logger.critical("and 'column density'.")
+						typeErrorMsg(self.logger,self.type,typeEntry=self.species)
+				
 				elif self.species == 'CO':				
-					if self.type == 'integrated brightness temperature':
+					if self.type == 'brightness temperature':
 						path = getPath(self.logger, key='lustre_'+sur+'_co')
-						flag = 'WCO_line'
+						flag = 'CO_line'
 					elif self.type == 'column density':
 						path = getPath(self.logger, key='lustre_'+sur+'_co_column_density')
 						flag = 'H2_column_density'
 					else:
-						self.logger.critical("The only allowed types are: 'integrated brightness")
-						self.logger.critical("temperature' (Wco), and 'column density'.")
-		
+						typeErrorMsg(self.logger,self.type,typeEntry=self.species)
+				
+				elif self.species == 'HI+CO':				
+					if self.type == 'column density':
+						path = getPath(self.logger, key='lustre_'+sur+'_hi_column_density')
+						flag = 'HI+H2_column_density'
+					else:
+						typeErrorMsg(self.logger,self.type,typeEntry=self.species)
+				
+				elif self.species == 'HI+HISA+CO':				
+					if self.type == 'column density':
+						path = getPath(self.logger, key='lustre_'+sur+'_hi_column_density')
+						flag = 'HI+HISA+H2_column_density'
+					else:
+						typeErrorMsg(self.logger,self.type,typeEntry=self.species)
+	
 		filename = path+self.survey+'_'+self.mosaic+'_'+flag+'.fits'
 		checkForFiles(self.logger,[filename])
 		
@@ -148,16 +154,16 @@ class Mosaic(object):
 	
 			if self.type == 'brightness temperature':
 				if self.survey == 'LAB':
-					self.msc_area = hdu.header['object']#.split('/')[0]
-					self.msc_band = hdu.header['freq0'] # 1.420405752000E+09 / rest frequency in Hz
+					self.msc_area = hdu.header['object']
+					self.msc_band = hdu.header['freq0'] # 1.4204057E+09 / rest frequency in Hz
 				if self.survey == 'CGPS':
 					self.msc_area = hdu.header['adc_area']
 					self.msc_band = hdu.header['adc_band'] # HI,CO
 				if self.survey == 'SGPS':
-					self.msc_area = hdu.header['object']#.split('/')[0]
+					self.msc_area = hdu.header['object']
 					self.msc_band = hdu.header['restfreq'] # 1.4204057E+09 / rest frequency in Hz
 
-				self.msc_vel = hdu.header['NAXIS3']	# 272
+				self.msc_vel = hdu.header['NAXIS3'] # 272
 				if self.survey == 'CGPS' or self.survey == 'SGPS':
 					self.msc_pol = hdu.header['NAXIS4']	# 1, polarization
 
@@ -168,10 +174,17 @@ class Mosaic(object):
 				if self.survey == 'LAB' or self.survey == 'CGPS':
 					self.msc_rot_vel = float(hdu.header['CROTA3']) # 0.0
 				if self.survey == 'CGPS':
-					if self.msc_band == 'HI' or self.msc_band == 'CO':	
+					if self.msc_band == 'HI':	
 						self.observation[:,:18,:,:] = 0.
 						self.observation[:,271,:,:] = 0.
 						filter1 = self.observation < -1e4
+						filter2 = isnan(self.observation)
+						self.observation[filter1] = 0.
+						self.observation[filter2] = 0.
+					if self.msc_band == 'CO':	
+						#self.observation[:,:23,:,:] = 0.
+						#self.observation[:,256:,:,:] = 0.
+						filter1 = self.observation < -1e3
 						filter2 = isnan(self.observation)
 						self.observation[filter1] = 0.
 						self.observation[filter2] = 0.
@@ -191,8 +204,11 @@ class Mosaic(object):
 				self.observation[filter2] = 0.
 					
 		self.header = hdu.header
-		self._inputs = 'Created '+self.survey+' Mosaic object ('+self.type+')'
-		
+		if not load:
+			self._inputs = 'Created '+self.survey+' Mosaic object '+self.species+' '+self.type
+		else:
+			self._inputs = 'Loaded '+self.survey+' Mosaic object '+self.species+' '+self.type
+	
 	#def __getattr__(self, attrname):
 		#try;
 		#return getattr(self.observation, attrname)

@@ -1,12 +1,9 @@
 """
+__init__.py, Version: 24.11.2012
 """
-#$Id: __init__.py,v 1.2 2009/02/23 15:56:17 oxon Exp $
-
 from Survey import *
 from SurveyUtils import *
-from MosaicLAB import *
-from MosaicCGPS import *
-from makeLABMosaic import *
-from makeCGPSMosaic import *
-from makeCGPSCorrection import *
-from combineCGPSMosaics import *
+from Mosaic import *
+from makeMosaic import *
+from makeCorrection import *
+from combineMosaics import *
