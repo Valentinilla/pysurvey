@@ -34,7 +34,7 @@ import pyfits
 glob_Tb  = 'brightness temperature'
 glob_ITb = 'integrated brightness temperature'
 glob_N   = 'column density'
-glob_ncpu = 15
+glob_ncpu = 14
 glob_annuli = 'Galprop' # Ackermann2012:Galprop
 #################################################
 #	START GENERAL FUNCTIONS
@@ -888,14 +888,18 @@ def Deconvolution( (T,coord,vec) ):
 	report = open("report_"+species+".dat","w")
 	gmax = 0.
 	if rotcurve == 'Bissantz2003':
-		gmax = 165.
+		gmax = 165. # +165, -165(=345)
 	elif rotcurve == 'Clemens1985':
-		gmax = 180.
-	
+		gmax = 180. # +180, -180(=360)
+
+	condition = 1
+
 	for l in xrange(0,nlon):
 		glo_deg = lon[l]
 		#print "%i) longitude: %.3f deg"%(l,lon[l])
-		if (abs(glo_deg) <= gmax):
+		#print abs(glo_deg)
+		#exit(0)
+		if condition:#(abs(glo_deg) <= gmax):
 			glon = radians(glo_deg)
 			dismin = floor(r_sun*abs(cos(glon))/dbin)
 			radmin = floor(r_sun*abs(sin(glon))/dbin)
@@ -906,7 +910,7 @@ def Deconvolution( (T,coord,vec) ):
 				#print "  %i) latitude: %.3f"%(b,lat[b])
 				gla_deg = lat[b]
 				glat = radians(gla_deg)
-			
+				
 				# Define intervals and heights: Equations (4)   
 				z = z_sun+true_dis*sin(glat)
 				r_proj = true_dis*cos(glat)
@@ -1049,11 +1053,9 @@ def Deconvolution( (T,coord,vec) ):
 					
 					# add intensity line (= sigma_line*amp) to cubemap
 					for i,j in enumerate(ilocation):
+						#z = ika[i]
 						if(radi[j] < 1.): wgn += wa[i]/wtot
 						wga = wa[i]/wtot
-						
-						#if fabs(vpeak) > 50.:
-							#continue
 						
 						wamp = 0.
 						if species == 'HI' or species == 'HI_unabsorbed':
@@ -1097,7 +1099,12 @@ def Deconvolution( (T,coord,vec) ):
 					#if fabs(vpeak) > 250.:
 					#plotFunc(vel,[spec,rspec],['observed','gaussian filter'], position='upper right')
 					#exit(0)
-
+				
+				#pa = sum(cubemap[:,b,l])
+				#pb = sum(cubemap[-2,b,l])
+				#cubemap[-2,b,l] = 0.
+				#cubemap[:,b,l] *= pa/(pa-pb)
+				
 				#print cnt1,wco
 				#plotFunc(vel,[spec,rspec],['observed','gaussian filter'], position='upper right')
 				#exit(0)
@@ -1216,8 +1223,15 @@ def concatenateMosaics( (list,vec) ):
 	
 	index = 0
 	c = []
-	
+	#for i in xrange(10):
+	#	print i+1,list[i].header['NAXIS']
+	#exit(0)
 	for current, next in zip(list, list[1:]):
+		d1 = current.data.shape
+		d2 = next.data.shape
+		if d1 != d2:
+			print "Mosaic dimensions don't agree: current = %s, next = %s"%(str(d1),str(d2))
+			sys.exit(0)
 		if index == 0:
 			if dim == '2D':
 				c = concatenate((current.data[:,0:-dx], next.data[:,dx:]), axis=1)
@@ -2257,12 +2271,54 @@ def getPath(surveyLogger, key="cgps_hi"):
 	if key=="lustre_sgps_hisa_column_density":
 		path = True
 		return disk2+'/SGPS/HISA/col_den/'
+
+	# VGPS
+	if key=="vgps_hi":
+		path = True
+		return data1+'/hi/VGPS/'
+	if key=="vgps_hi_continuum":
+		surveyLogger.critical("No continuum data available for this survey!")
+		raise FileNotFound
+	if key=="vgps_hisa_dat":
+		path = True
+		return result1+'/vgps/results/'
+
+	if key=="lustre_vgps":
+		path = True
+		return disk2+'/VGPS/'
+	if key=="lustre_vgps_hi":
+		path = True
+		return disk2+'/VGPS/HI/'
+        if key=="lustre_vgps_hi_split":
+                path = True
+                return disk2+'/VGPS/HI/split/'
+	if key=="lustre_vgps_hi_column_density":
+		path = True
+		return disk2+'/VGPS/HI/col_den/'
+	if key=="lustre_vgps_hi_unabsorbed":
+		path = True
+		return disk2+'/VGPS/HI_unabsorbed/'
+	if key=="lustre_vgps_hi_unabsorbed_split":
+		path = True
+		return disk2+'/VGPS/HI_unabsorbed/split/'
+	if key=="lustre_vgps_hi_unabsorbed_column_density":
+		path = True
+		return disk2+'/VGPS/HI_unabsorbed/col_den/'
+	if key=="lustre_vgps_hisa":
+		path = True
+		return disk2+'/VGPS/HISA/'
+        if key=="lustre_vgps_hisa_split":
+                path = True
+                return disk2+'/VGPS/HISA/split/'
+	if key=="lustre_vgps_hisa_column_density":
+		path = True
+		return disk2+'/VGPS/HISA/col_den/'
 		
 	if(not path):
 		surveyLogger.critical("Path '%s' doesn't exist."%key)
 		raise FileNotFound
 
-def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc):
+def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc,mypath):
 
 	# Select the file according to Survey and Mosaic
 	path = ''
@@ -2421,7 +2477,12 @@ def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc):
 			path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec+'_split')
 			flag = '%s_line_part_%i-%i'%(species,nmsc,totmsc)
 
-	return	path,flag,mosaic
+	filename = path+survey+'_'+mosaic+'_'+flag+'.fits'
+
+	if datatype == 'generic':
+		filename = mypath
+
+	return	filename,mosaic
 
 def getFile2(surveyLogger,survey,mosaic,species,type,load):
 	# Select the file according to Survey and Mosaic

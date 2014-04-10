@@ -14,15 +14,15 @@ except ImportError:
 
 class Mosaic(object):
 	
-	def __init__(self,surveyConf,mosaicConf,type,species='',datatype='original',nmsc=1,totmsc=1):
-		"""
+	def __init__(self,surveyConf,mosaicConf,type,species,datatype,nmsc,totmsc,mypath):
+		'''
 		Read the fits file: HI, HISA, CO
 		To check memory consumption:
 			> @profile
 			> def function():
 			> ...
 			> python -m memory_profiler script.py
-		"""
+		'''
 		self.survey = surveyConf['survey']
 		self.mosaic = mosaicConf['mosaic']
 		self.type = type
@@ -34,9 +34,8 @@ class Mosaic(object):
 		self.totmsc = totmsc
 
 		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_Mosaic')
-		path,flag,self.mosaic = getFile(self.logger,self.survey,self.mosaic,self.species,self.type,self.datatype,nmsc,totmsc)
+		self.filename,self.mosaic = getFile(self.logger,self.survey,self.mosaic,self.species,self.type,self.datatype,nmsc,totmsc,mypath)
 
-		self.filename = path+self.survey+'_'+self.mosaic+'_'+flag+'.fits'
 		checkForFiles(self.logger,[self.filename])
 		self.logger.info("%s"%self.filename)
 		

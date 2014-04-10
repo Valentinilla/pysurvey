@@ -50,7 +50,17 @@ class combineMosaics(object):
 					list3 = ['MIJ1','MIJ2','MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
 					tlist = list1+list2+list3
 				
-				if self.survey == 'LAB':
+				elif self.survey == 'SGPS':
+					list1 = ['G005.5','G007.5','G009.5','G011.5','G013.5','G015.0','G017.0','G019.0','G258.0']
+					list2 = ['G268.0','G278.0','G288.0','G298.0','G308.0','G318.0','G328.0','G338.0','G348.0']
+					tlist = list1+list2
+
+				elif self.survey == 'VGPS':#VGPS_G000_HI_line_image.fits
+					list1 = ['G000','G017','G021','G025','G029','G033','G037']
+					list2 = ['G041','G045','G049','G053','G057','G061','G065']
+					tlist = list1+list2
+
+				elif self.survey == 'LAB':
 					list1 = ['A1','A2','A3','A4']
 					tlist = list1
 	
@@ -68,7 +78,7 @@ class combineMosaics(object):
 						list.append(f)
 		else:
 			if HI_all_OR:
-				list = [f for f in os.listdir(path) if f.startswith('%s_%s_%s_part'%(self.survey,self.mosaic,flag1))]
+				list = [f for f in os.listdir(path) if f.startswith('%s_%s_%s_%s_part'%(self.survey,self.mosaic,flag1,flag2))]
 				list = sort(list)
 		
 		if len(list) == 0:
@@ -108,7 +118,7 @@ class combineMosaics(object):
 			
 			msc_file = pyfits.open(mosaic)
 			hdu = msc_file[0]
-			
+
 			if self.mosaic == 'skymap' and (self.survey == 'CGPS' or self.survey == 'LAB'):
 				# select mosaics according to their ID number: 1 down, 2 up
 				# |2|2|2|2|...
@@ -131,7 +141,7 @@ class combineMosaics(object):
 				overlap_lat_px = 0
 				odx,ody = 0,0
 			
-		if self.species == 'CO':
+		elif self.species == 'CO':
 			if self.survey == 'CGPS' and self.mosaic == 'skymap':
 				overlap_lon_px = round(1.12/msc_dy) # mosaics overlap by 1.12 deg = 224 px
 				overlap_lat_px = round(1.12/msc_dy) #
@@ -142,7 +152,7 @@ class combineMosaics(object):
                                 overlap_lon_px = 0
                                 overlap_lat_px = 0
 				odx,ody = 0,0
-
+		
 		if msc_size == 2:
 			nx = msc_x*(n_msc/2) - overlap_lon_px*((n_msc/2)-1)
 			ny = 2*msc_y - overlap_lat_px		
@@ -159,7 +169,7 @@ class combineMosaics(object):
 					ny+=list1[m].header['naxis2']
 			nz = msc_z
 			skymap = zeros((nz,ny,nx))
-
+		
 		# Using Multiprocessing if enough cpus are available
 		#import multiprocessing
 		#import itertools
@@ -174,7 +184,7 @@ class combineMosaics(object):
 		#del samples_list
 		#del results
 		#exit(0)
-
+		
 		vec = [dim,odx,msc_x]
 		if self.mosaic == 'skymap' and (self.survey == 'CGPS' or self.survey == 'LAB'):
 			if n_msc > 2:
@@ -213,6 +223,11 @@ class combineMosaics(object):
 			c = []
 			index = 0
 			for current, next in zip(list1, list1[1:]):
+				d1 = current.data.shape
+				d2 = next.data.shape
+				if d1 != d2:
+					self.logger.critical("Mosaic dimensions don't agree: current = %s, next = %s"%(str(d1),str(d2)))
+					sys.exit(0)
 				if index == 0:
 					c = concatenate((current.data[:,:,:], next.data[:,:,:]), axis=1)
 				elif index > 0 and index < len(list):
@@ -258,25 +273,29 @@ class combineMosaics(object):
 		newheader["cunit2"] = ("deg","Unit type")
 
 		if dim == '3D':
-			newheader["ctype3"] = ("Rband","Coordinate type")
-			newheader["crval3"] = (0,"Ring of reference pixel")
-			newheader["crpix3"] = (1.0,"Reference pixel of ring")
-			newheader["cdelt3"] = (1,"Ring increment")
-			#newheader["crota3"] = (msc_rotz,"Ring rotation")
+			newheader['ctype3'] = ("Rband","Coordinate type")
+			newheader['crval3'] = (0,"Ring of reference pixel")
+			newheader['crpix3'] = (1.0,"Reference pixel of ring")
+			newheader['cdelt3'] = (1,"Ring increment")
+			#newheader['crota3'] = (msc_rotz,"Ring rotation")
 
-		newheader["bunit"] = (msc_bunit,"Map units")
-		newheader["datamin"] = (amin(skymap),"Min value")
-		newheader["datamax"] = (amax(skymap),"Max value")
+		newheader['bunit'] = (msc_bunit,"Map units")
+		newheader['datamin'] = (amin(skymap),"Min value")
+		newheader['datamax'] = (amax(skymap),"Max value")
 		if self.mosaic == 'skymap':
-			newheader["object"] = (self.survey+" Skymap",self.survey+" Mosaic")
+			newheader['object'] = (self.survey+" Skymap",self.survey+" Mosaic")
 		else:
-			newheader["object"] = ("Mosaic "+self.mosaic,self.survey+" Mosaic")
+			newheader['object'] = ("Mosaic "+self.mosaic,self.survey+" Mosaic")
 			newheader['minfil'] = unravel_index(argmin(skymap),skymap.shape)[0]
 			newheader['mincol'] = unravel_index(argmin(skymap),skymap.shape)[1]
 			newheader['minrow'] = unravel_index(argmin(skymap),skymap.shape)[2]
 			newheader['maxfil'] = unravel_index(argmax(skymap),skymap.shape)[0]
 			newheader['maxcol'] = unravel_index(argmax(skymap),skymap.shape)[1]
 			newheader['maxrow'] = unravel_index(argmax(skymap),skymap.shape)[2]
+
+		if 'history' in hdu1.header:
+			for i in xrange(len(hdu1.header['history'])):
+				newheader['history'] = hdu1.header['history'][i]
 
 		results = pyfits.PrimaryHDU(skymap, newheader)
 				
@@ -291,14 +310,15 @@ class combineMosaics(object):
 			path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower()+'_column_density')
 			if HI_all_OR:
 				key = self.species
-				flag = key+'_column_density'
+				flag = key+'_column_density_rings'
 			elif self.species == 'CO':
 				key = 'WCO'
-				flag = key+'_intensity_line'
+				flag = key+'_intensity_line_rings'
 			dir = path+self.survey+'_'+self.mosaic+'_'+key
-			os.system('mkdir %s'%dir)
-			os.system('mv %s* %s'%(path+self.survey+'_'+self.mosaic+'_'+flag+'_rings_part_',dir))
-			skymap_name = path+self.survey+'_'+self.mosaic+'_'+flag+'_rings.fits'
+			if not os.path.exists(dir):
+				os.makedirs(dir)
+			os.system('mv %s* %s'%(path+self.survey+'_'+self.mosaic+'_'+flag+'_part_',dir))
+			skymap_name = path+self.survey+'_'+self.mosaic+'_'+flag+'.fits'
 
 		rmin,rmax,annuli = getAnnuli(glob_annuli)
 		

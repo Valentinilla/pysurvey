@@ -28,15 +28,15 @@ class deconvolveMosaic(object):
 		path = getPath(self.logger,'lustre_'+sur+'_'+self.species.lower()+'_column_density')		
 		if HI_all_OR:
 			if self.totmsc == 1:
-				flag = self.species+'_column_density'
+				flag = self.species+'_column_density_rings'
 			else:
-				flag = self.species+'_column_density_part_%s-%s'%(self.nmsc,self.totmsc)
+				flag = self.species+'_column_density_rings_part_%s-%s'%(self.nmsc,self.totmsc)
 			units = '10e+20 H atoms cm-2'
 		elif self.species == 'CO':
-			flag = 'WCO_intensity_line'
+			flag = 'WCO_intensity_line_rings'
 			units = 'K km s-1'
 		
-		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_rings.fits'
+		file = path+self.survey+'_'+self.mosaic+'_'+flag+'.fits'
 		checkForFiles(self.logger,[file],existence=True)		
 		
 		self.logger.info("Open file and get data...")
@@ -71,7 +71,7 @@ class deconvolveMosaic(object):
 		
 		rmin,rmax,annuli = getAnnuli(glob_annuli)
 		if not (rotcurve == 'Bissantz2003' or rotcurve == 'Clemens1985'):
-			self.logger.critical("You must enter a right rotation curve! Options are: 'Bissantz2003' or 'Clemens1985'")
+			self.logger.critical("You must enter a correct rotation curve! Options are: 'Bissantz2003' or 'Clemens1985'")
 			self.logger.critical("Your entry is %s"%rotcurve)
 			sys.exit(0)
 		

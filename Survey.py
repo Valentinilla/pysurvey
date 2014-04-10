@@ -168,7 +168,7 @@ class Survey:
 
 
 	#def loadMosaic(self,species='HI',type='brightness temperature'):
-	def loadMosaic(self,species='HI',type='brightness temperature',datatype='original',nmsc=1,totmsc=1):
+	def loadMosaic(self,species='HI',type='brightness temperature',datatype='original',nmsc=1,totmsc=1,mypath=None):
 		"""
 		Load a mosaic.
 		Input parameters: 
@@ -184,7 +184,7 @@ class Survey:
 			#	del self.msc
 			#	self.logger.info("Free memory")
 			
-			self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,datatype,nmsc,totmsc)
+			self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,datatype,nmsc,totmsc,mypath)
 			#self.mosaic = Mosaic(self.surveyConf,self.mosaicConf,type,species,load=True)
 			self.logger.info(self.ret.subn(', ',str(self.mosaic))[0])
 			
