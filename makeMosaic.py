@@ -10,7 +10,7 @@ class makeMosaic(object):
 	
 	def __init__(self,obs,mosaicConf):
 		"""
-		Generate mosaics of 'unabsorbed HI','HISA'
+		Generate 'unabsorbed HI','HISA', and HI CGPS-like mosaics
 		"""
 		self.survey = obs.survey
 		self.mosaic = obs.mosaic
@@ -28,11 +28,6 @@ class makeMosaic(object):
 				path = getPath(self.logger, key="lustre_galprop_co")
 				self.mosaic = mosaicConf['mosaic']
 				flag = 'WCO'
-		elif self.survey == 'LAB':
-			path = getPath(self.logger, key="lustre_lab")
-			if self.species == 'HI':
-				self.mosaic = mosaicConf['mosaic']
-				flag = 'HI'
 		elif self.survey == 'Dame':
 			path = getPath(self.logger, key="lustre_dame")
 			if self.species == 'WCO':
@@ -40,27 +35,10 @@ class makeMosaic(object):
 				flag = 'WCO'
 
 		else:
-			if self.species == 'HI':
-				if self.survey == 'CGPS':
-					path = getPath(self.logger, key="lustre_cgps_hi")
-				if self.survey == 'SGPS':
-					path = getPath(self.logger, key="lustre_sgps_hi")
-				flag = 'HI_unabsorbed'
-			elif self.species == 'HISA':
-				if self.survey == 'CGPS':
-					path = getPath(self.logger, key="lustre_cgps_hisa")
-				if self.survey == 'SGPS':
-					path = getPath(self.logger, key="lustre_sgps_hisa")
-				flag = 'HISA'
-			elif self.species == 'HI+HISA':
-				if self.survey == 'CGPS':
-					path = getPath(self.logger, key="lustre_cgps_hi")
-				if self.survey == 'SGPS':
-					path = getPath(self.logger, key="lustre_sgps_hi")
-				flag = 'HI+HISA'
-			elif self.species == 'CO':
-				path = getPath(self.logger, key="lustre_cgps_co")
-				flag = 'CO'
+			path = getPath(self.logger, key='lustre_'+self.survey.lower()+'_'+self.species.lower())
+			if self.species == 'HI+HISA':
+				path = getPath(self.logger, key='lustre_'+self.survey.lower()+'_hi')
+			flag = self.species
 
 		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_line.fits'
 		checkForFiles(self.logger,[file],existence=True)
@@ -234,13 +212,13 @@ class makeMosaic(object):
 					
 					if self.species == 'HISA':
 						Tb[0,m,l,k] = fabs(nd)
-					elif self.species == 'HI':
+					elif self.species == 'HI_unabsorbed':
 						Tb[0,m,l,k] = nc
 					#elif self.species == 'HI+HISA':
 					#	Tb[0,m,l,k] = nc + fabs(nd)
 				
 			else:
-				self.logger.error("This function can be only applied to HI and HISA mosaics.")
+				self.logger.error("This function can be only applied to HI_unabsorbed and HISA mosaics.")
 				
 			obs.keyword['datamin'] = amin(Tb)
 			obs.keyword['datamax'] = amax(Tb)

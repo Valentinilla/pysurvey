@@ -20,25 +20,28 @@ class splitMosaic(object):
 
 		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_SplitModule')
 		file,path,flag = '','',''
-		sur = (self.survey).lower()
+		sur = self.survey.lower()
 		
-		if self.species == 'HI':
-			path = getPath(self.logger,'lustre_'+sur+'_hi_split')
-			flag = 'HI_unabsorbed_line'
-		elif self.species == 'HISA':
-			path = getPath(self.logger,'lustre_'+sur+'_hisa_split')
-			flag = 'HISA_line'
-		elif self.species == 'CO':
+		if self.species == 'CO':
 			self.logger.critical("Split module not implemented for CO.")
 			sys.exit(0)
+		
+		path = getPath(self.logger,'lustre_'+sur+'_'+self.species.lower()+'_split')
+		flag = self.species+'_line'
 				
 		self.logger.info("Open file and get data...")
 				
 		# Get HI emission data
-		Tb = mosaic.observation[:,:,:,:]
+		naxis = 2
+		if self.survey == 'LAB':
+			Tb = mosaic.observation[:,:,:]
+			naxis = 1
+		else:
+			Tb = mosaic.observation[:,:,:,:]
+			naxis = 2
 		lat = mosaic.yarray
 		
-		alist = array_split(Tb, self.ntot, axis=2)
+		alist = array_split(Tb, self.ntot, axis=naxis)
 		ind_lat = 0
 		
 		for z in xrange(0,self.ntot):
@@ -47,7 +50,7 @@ class splitMosaic(object):
 			checkForFiles(self.logger,[file],existence=True)
 			
 			# Store results
-			crpix_lat = (Tb.shape[2]/self.ntot)/2
+			crpix_lat = (Tb.shape[naxis]/self.ntot)/2
 			i = z+(z+1)
 			ind_lat = crpix_lat*i
 			#print i, ind_lat	

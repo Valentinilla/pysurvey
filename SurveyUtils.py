@@ -34,7 +34,7 @@ import pyfits
 glob_Tb  = 'brightness temperature'
 glob_ITb = 'integrated brightness temperature'
 glob_N   = 'column density'
-glob_ncpu = 16
+glob_ncpu = 1#8
 glob_annuli = 'Ackermann2012' # Ackermann2012:Galprop
 #################################################
 #	START GENERAL FUNCTIONS
@@ -577,32 +577,36 @@ def rotation_curve( (T,vec) ):
 
 	# Line properties
 	sigma = 0. # velocoty dispersion (standard deviation of the distribution)
-	if species == 'HI':
-		sigma = 4.	#hi velocity dispersion (from LAB) [km s-1]
+	if species == 'HI' or species == 'HI_unabsorbed':
+		sigma = 4.#4.	#hi velocity dispersion (from LAB) [km s-1]
 	elif species == 'CO':
 		sigma = 3.	#co velocity dispersion [km s-1]
 	elif species == 'HISA':
 		sigma = 2.	#hisa velocity dispersion [km s-1]
 
-	sigma_co = sigma
-	sigma_co_inner = 5.	#co velocity dispersion inner galaxy [km s-1]
+	sigma_gas = sigma
+	sigma_gas_inner = 5.	#velocity dispersion inner galaxy [km s-1]
 	
-	# number of velocities elements the spectral line is made up
-	nv = 20
-	ivzero = int(floor(nv/dv))  #normalize to the velocity resolution of the survey (24 CO CGPS; 17 LAB)
-	iv_vec = arange(2*ivzero+1) #take a range around the peak (49 CO CGPS)
+	# Define dummy line profile and its weight
+	L = 20 			    # half-lenght covered by the line (num of v-channels)
+	ivzero = int(floor(L/dv))   # center of the line profile (index)
+	vzero = ivzero*dv	    # center of the line profile (km s-1)
+	iv_vec = arange(2*ivzero+1) # vector of velocity channels (indexes) of the line profile
+	v_vec = iv_vec*dv	    # vector of velocity channels (km s-1) of the line profile
 
+	#gaussian = p[0]*exp(-0.5*power( (x-p[1])/p[2],2))
+	
 	# Define dummy line profile and its weight for W_co
-	line = exp(-0.5*(dv*(iv_vec-ivzero)/sigma_co)**2)
-	sigma_line = sigma_co*sqrt(2.*pi)
-	lip = exp(-0.5*(dv*(iv_vec-ivzero)/(sigma_co/2))**2)
+	line = gaussian(v_vec,[1,vzero,sigma_gas],normalized=False)
+	sigma_line = sigma_gas*sqrt(2.*pi)
+	lip = gaussian(v_vec,[1,vzero,(sigma_gas/2)],normalized=False)
 	wlip = sigma_line/2.
 	lim = line/sigma_line
 
 	# Line profile for GC region
-	line_inner = exp(-0.5*(dv*(iv_vec-ivzero)/sigma_co_inner)**2)
-	sigma_line_inner = sigma_co_inner*sqrt(2.*pi)
-	lgp = exp(-0.5*(dv*(iv_vec-ivzero)/(sigma_co_inner/2))**2)
+	line_inner = gaussian(v_vec,[1,vzero,sigma_gas_inner],normalized=False)
+	sigma_line_inner = sigma_gas_inner*sqrt(2.*pi)
+	lgp = gaussian(v_vec,[1,vzero,(sigma_gas_inner/2)],normalized=False)
 	wlgp = sigma_line_inner/2.
 	lgm=lgp/wlgp
 	
@@ -633,22 +637,22 @@ def rotation_curve( (T,vec) ):
 	del rotation
 
 	# Physical variables
-	r_sun = 8.    #kpc
-	z_sun = 0.015 #kpc
-	v_sun = 210.  #km s-1
-	gal_radius = 20. #kpc
-	gal_thick = 1. #kpc
-	dbin = 1/gal_radius #50 pc
-	r_scale = 10. # radial scale [kpc]
+	r_sun = 8.		#kpc
+	z_sun = 0.015		#kpc
+	v_sun = 210. 		#km s-1
+	gal_radius = 20. 	#kpc
+	gal_thick = 1. 		#kpc
+	dbin = 1/gal_radius 	#50 pc
+	r_scale = 10. 		#radial scale [kpc]
 		
 	N = 760
 		
 	# Cuts
 	v_offset = 10.     #velocity offset [10 km/s]
 	lon_inner = 20.    #inner Galaxy longitude (|l|<=20) [deg]
-	residual_line = 1. #threshold of remaining  CO line spectrum [K km/s]
+	residual_line = 1. #threshold of residual line spectrum [K km/s]
 	amp_frac = 0.2     #percentage of the peak value [x100 %]
-		
+	
 	# Array definition
 	true_dis = dbin*(0.5+arange(N))
 	vbgr = zeros(N,dtype=float32)
@@ -749,23 +753,25 @@ def rotation_curve( (T,vec) ):
 				dveff[-1] = fabs(veff[-2]-veff[-1])
 				dveff[0:N-1] = [fabs(veff[i+1]-veff[i]) for i in xrange(N-1)]
 					
-				weight_veff = zeros(veff.shape)
 				# Equation (14)
+				weight_veff = zeros(veff.shape)
 				weight_veff = where((dveff+1.e-8)>dv,dv,dveff+1.e-8)
-									
+				
 				# Line spectrum
 				spec = array(nvel)
 				spec = T[:,b,l]
 				spec[0] = 0.
 				spec[nvel-1] = 0.
-				rspec = fftconvolve(spec,lim,'same')
+				#rspec = fftconvolve(spec,lim,'same')
+				rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
 				#print argmax(spec),argmin(spec)
 				
-				#zero_avg = mean(rspec[rspec<0])
-				#print zero_avg,abs(dv*sum(spec[spec>-0.1])),abs(dv*sum(spec))
-				#plotFunc(vel,spec,rspec)
-				
-				wco = fabs(dv*sum(spec[spec>-0.1])) #fabs(dv*sum(spec))
+				zero_avg = mean(rspec[rspec<0])
+				#print zero_avg,abs(dv*sum(spec)),abs(dv*sum(spec+zero_avg))
+				#plotFunc(vel,[spec,rspec])
+				#exit(0)
+				wco = fabs(dv*sum(spec+zero_avg)) 
+				#wco = fabs(dv*sum(spec))
 				wcb = wco/sigma_line
 				wco_previous = 0
 				cnt1 = 0
@@ -776,7 +782,7 @@ def rotation_curve( (T,vec) ):
 					ivpeak = argmax(rspec)
 					vpeak = vel[ivpeak]
 
-					if species == 'HI':
+					if species == 'HI' or species == 'HI_unabsorbed':
 						amp = amp_frac*log(Ts/(Ts-rspec[ivpeak]))*Ts
 						amp = where(wcb>amp,amp,wcb)
 					elif species == 'CO':			
@@ -793,8 +799,8 @@ def rotation_curve( (T,vec) ):
 						iv1 = 0
 						if(ivhigh < nvel):
 							iv2 = size(iv_vec)-1
-							sigma_line = sigma_co*sqrt(2.*pi)
-							sigma_line_inner = sigma_co_inner*sqrt(2.*pi)
+							sigma_line = sigma_gas*sqrt(2.*pi)
+							sigma_line_inner = sigma_gas_inner*sqrt(2.*pi)
 						else:
 							iv2 = size(iv_vec)-ivhigh-2+nvel
 							ivhigh = nvel-1
@@ -815,7 +821,7 @@ def rotation_curve( (T,vec) ):
 					#print veff[ivgood],vpeak,r_proj[ivgood]
 					
 					linevpeak = ones(veff.shape)*vpeak
-					#plotFunc(r_proj[0:30],veff[0:30],veff[0:30]+dveff[0:30],linevpeak[0:30])
+					#plotFunc(r_proj[0:30],[veff[0:30],veff[0:30]+dveff[0:30],linevpeak[0:30]])
 					#exit(0)
 						
 					# Standard selection of locations
@@ -836,17 +842,13 @@ def rotation_curve( (T,vec) ):
 						roots = 8 # eight kinematically best-fitting location
 						ilocation = zeros(roots,dtype=float)
 						ilocation[0:roots] = ivmatch[0:roots]
-						ika = zeros(roots,dtype=int)
-						ika = (0.5*ilocation-0.25).round()
 					else:
 						roots = cnt_ivgood+8
 						ilocation = zeros(roots,dtype=float)
 						ilocation[0:cnt_ivgood] = ivgood[0][0:cnt_ivgood]
 						ilocation[cnt_ivgood:roots] = ivmatch[0:8]
-						ika = zeros(roots,dtype=int)
-						ika = (0.5*ilocation-0.25).round()
 					
-					# Weights from height above plane
+					# Product of three weights (velocity,kinematic,height)
 					wa = zeros(roots,dtype=float)
 					
 					for i in xrange(0,roots):
@@ -863,16 +865,14 @@ def rotation_curve( (T,vec) ):
 							sphib = 2.*sphi*cphi*cos(phia[nrx])+(sphi**2-cphi**2)*sin(phia[nrx])
 							# equation (16)
 							zc = warpa[nrx]+warpb[nrx]*sphia+warpc[nrx]*sphib
-
-						arg_wz = 0.5*((z[j]-zc)/sigma_z)**2
-						dz = (true_dis[j]/sigma_z)*(pi/360)
 							
 						# Weights from height above plane
-						weight_z = exp(-where(arg_wz<20,arg_wz,20))
+						weight_z = gaussian(z[j],[1,zc,sigma_z],normalized=False)
+						weight_z = where(weight_z>exp(-20),weight_z,exp(-20))
 						# Minimize the kinematically allowed but physically unlikely placing of gas
-						weight_k = exp(-0.5*(radi[j]/r_scale)**2)
-							
-						wa[i] = weight_veff[j]*weight_k*(1.+dz**2*(2.*arg_wz-1)/12.)*weight_z
+						weight_k = gaussian(radi[j],[1,0,r_scale],normalized=False)
+						
+						wa[i] = weight_veff[j]*weight_k*weight_z
 
 					wgn = 0.
 					wtot = sum(wa)
@@ -883,7 +883,7 @@ def rotation_curve( (T,vec) ):
 						if(radi[k] < 1.): wgn += wa[i]/wtot
 						wga = wa[i]/wtot
 						
-						if species == 'HI':	
+						if species == 'HI' or species == 'HI_unabsorbed':	
 							for a in xrange(annuli):
 								if(radi[k] >= rmin[a]) and (radi[k] < rmax[a]):
 									cubemap[a,b,l] += wga*amp*sigma_line*C
@@ -908,8 +908,11 @@ def rotation_curve( (T,vec) ):
 
 					wco_previous = wco
 					spec[ivlow:ivhigh] = spec[ivlow:ivhigh]-wgo*amp*line[iv1:iv2]-wgn*amp*line_inner[iv1:iv2]*sigma_line/sigma_line_inner
-					rspec = fftconvolve(spec,lim,'same')
-					wco = fabs(dv*sum(spec[spec>-0.1]))#fabs(dv*sum(spec))
+					#rspec = fftconvolve(spec,lim,'same')
+					rspec = ndimage.gaussian_filter(spec,sigma=sigma_gas,order=0)
+					
+					#wco = fabs(dv*sum(spec[spec>-0.1]))
+					wco = fabs(dv*sum(spec+zero_avg))
 					wcb = wco/sigma_line
 					#print wco
 					if wco > wco_previous:
@@ -919,17 +922,21 @@ def rotation_curve( (T,vec) ):
 						#plotFunc(vel,rspec,spec)
 
 					cnt1 += 1
-					if cnt1 > 400:
+					if cnt1 > 600:
 						string = "\ncnt1 = %i\n"%(cnt1)
 						string += "[glo,glat] = [%.4f,%.4f] - [l,b] = [%i,%i]\n"%(glo_deg,gla_deg,l,b)
 						string += "1) wco = %.3f\n"%(wco)
-						wco = residual_line
-						wcb = wco/sigma_line
+						#wco = residual_line
+						#wcb = wco/sigma_line
 						string += "2) wco = %.3f, wco_previous = %.3f\n"%(wco,wco_previous)
 						report.write(string)
-						
-					#plotFunc(vel,rspec,spec)
-			
+					
+					#plotFunc(vel,[spec,rspec],['observed','gaussian filter'], position='upper right')
+					#exit(0)
+
+				#print cnt1,wco
+				#plotFunc(vel,[spec,rspec],['observed','gaussian filter'], position='upper right')
+				#exit(0)
 	report.close()	
 	return cubemap
 
@@ -1353,7 +1360,7 @@ def spectralSearch( (T,vec) ):
 	xi = linspace(-n_half*deltax,n_half*deltax,num=1+2*n_half)
 	gauss_spec = gaussian(xi,[0,0,sigma_spec],normalized=True)
 	gauss_spec *= 1/(gauss_spec).sum()
-	#plotFunc(xi,gauss_spec)
+	#plotFunc(xi,[gauss_spec])
 	
 	# spatial convolution (HISA gaussian)
 	sigma_HISA = FWHM_SPATIAL_HISA/sqrt(8*log(2))
@@ -1376,7 +1383,7 @@ def spectralSearch( (T,vec) ):
 	#print a,b,c,d #a=101, b=102, c=186, d=187
 	
 	for i in xrange(7,nx-9):#7
-		for j in xrange(7,ny-9):
+		for j in xrange(70,ny-9):
 			
 			# O(k) is the observed spectrum
 			observed = T[:,j,i]
@@ -1404,18 +1411,14 @@ def spectralSearch( (T,vec) ):
 			
 			# Clean loop
 			smax = amax(smoothed)
-			
 			for loop in xrange(MAX_LOOPS):
-
 				rmax = amax(residual)
-				
 				# 1. 
 				if(rmax < RESIDUAL_FRAC*smax or rmax == 0.):
 					break
 				# 2.
 				correction = zeros(nz,dtype=float32)
 				correction = where(residual>CLIP_SPECTRAL*rmax,residual*GAIN_SPECTRAL,correction)
-				
 				# 3.
 				#unabsorbed += fftconvolve(correction,gauss_spec,"same")
 				unabsorbed += ndimage.gaussian_filter(correction,sigma=sigma_spec,order=0)
@@ -1424,7 +1427,7 @@ def spectralSearch( (T,vec) ):
 				residual = smoothed-unabsorbed
 				x_pos = residual[residual > 0.]
 				
-				#plotFunc(zarray,observed,smoothed,unabsorbed,residual)
+				#plotFunc(zarray,[observed,smoothed,unabsorbed,residual])
 				if(len(x_pos) > 0):
 					sigma_pos = sqrt(mean( power(x_pos,2) ))
 				else:
@@ -1448,11 +1451,21 @@ def spectralSearch( (T,vec) ):
 			
 			counter = 0
 			segments=[]
-				
+			
 			# Build consecutive HISA candidates into segments
+			#while(counter < cnt1):
+			print suspected_hisa_index
+			for iseg,ires in enumerate(suspected_hisa_index[0]):
+				segments.append(residual[ires])
+				 
+				print iseg,ires
+				#print i,segments,residual[suspected_hisa_index[0][counter]]
+			exit(0)
 			while(counter < cnt1):
 				segments = [residual[suspected_hisa_index[0][counter]]]
 				ikmin = [suspected_hisa_index[0][counter],0]
+				print "> counter %i"%counter,ikmin,segments
+				
 				count_start = counter
 				counter += 1
 				while(counter < cnt1 and (suspected_hisa_index[0][counter]-1) == suspected_hisa_index[0][counter-1]):
@@ -1460,8 +1473,11 @@ def spectralSearch( (T,vec) ):
 					if(segments[counter-count_start] < segments[ikmin[1]] ):
 						ikmin = [suspected_hisa_index[0][counter],counter-count_start]
 					counter += 1
+
+				#exit(0)
 				# ikmin[0][0] = index in residual, ikmin[0][1] = index in segments, ikmin[1] = size of segment
 				ikmin = [ikmin, counter-count_start]
+				print "counter %i"%counter,ikmin,segments
 	
 				# Fit Gaussians to candidate segments
 				#perform initial filtering on candidate segments
@@ -1531,14 +1547,18 @@ def spectralSearch( (T,vec) ):
 						dip_frac = dipFilter(observed,ikmin[0][0],num_of_zeros)
 						if(dip_frac > DIP_CUT):
 							HISA_merged += HISA_merged_temp
-							
+						
 						#ar = -1*ones(observed.shape,dtype=float32)
 						#trh1 = ones(nz)*(sigma_pos*HISA_F_SPECTRAL-10)
 						#trh2 = 30*ones(nz)
-						#f1 = [observed,unabsorbed,smoothed,10*ar+residual]
+						#f1 = [observed,smoothed,unabsorbed,10*ar+residual]
 						#f2 = [60*ar+HISA_narrow,90*ar+HISA_broad,120*ar+HISA_merged]
+						#f3 = [trh1,trh2]
 						# U(k),S(k),R(k),HISA_N,HISA_B,HISA_M
-						#plotFunc(zarray,f1[1],f1[0],f1[3],f2[0],f2[1],f2[2],trh1,trh2)
+						#plotFunc(zarray,f1[1:]+f2+f3,lbl='no label',position='lower right')
+						#label=['smoothed','unabsorbed','residual']
+						#plotFunc(zarray,f1[1:]+f3,lbl=label,position='upper right')
+						#exit(0)
 		
 			# Store HISA in result_array
 			result[:,j,i] = HISA_merged
@@ -1562,39 +1582,41 @@ def spectralSearch( (T,vec) ):
 #################################################
 # START PLOTTING FUNCTIONS
 #################################################
-def plotFunc(x,*func):
+def plotFunc(x,func,lbl=None,position=None):
+	'''
+	Usage: plotFunc(x, [func1,...,func8])
+	       plotFunc(x, [func1,...,func8], [lbl1,...lbl8])
+	       plotFunc(x, [func1,...,func8], [lbl1,...lbl8], position='lower right')
+	       plotFunc(x, [func1,...,func8], lbl='no label')
+	'''
 	import matplotlib.pyplot as plt
 	n = len(func)
-
+	if lbl==None:
+		lbl = []
+		for i in xrange(n):
+			lbl.append('func%i'%i)
 	if n==1:
-		plt.plot(x,func[0],label='func1',color='black',lw=1)#,'x',xi2,yi2)
-		plt.legend()# ('func1'),loc='upper left', shadow=False, fancybox=True)
+		plt.plot(x,func[0])
 	if n==2:
 		plt.plot(x,func[0],x,func[1])
-		plt.legend( ('func1','func2'),loc='upper left',shadow=False,fancybox=True)
 	if n==3:
 		plt.plot(x,func[0],x,func[1],x,func[2])
-		plt.legend( ('func1','func2','func3'),loc='upper left',shadow=False,fancybox=True)
 	if n==4:
 		plt.plot(x,func[0],x,func[1],x,func[2],x,func[3])
-		plt.legend( ('func1','func2','func3','func4'),loc='upper left',shadow=False,fancybox=True)
 	if n==5:
 		plt.plot(x,func[0],x,func[1],x,func[2],x,func[3],x,func[4])
-		plt.legend( ('f1','f2','f3','f4','f5'),loc='upper left',shadow=False,fancybox=True)
 	if n==6:
 		plt.plot(x,func[0],x,func[1],x,func[2],x,func[3],x,func[4],x,func[5])
-		plt.legend( ('f1','f2','f3','f4','f5','f6'),loc='upper left',shadow=False,fancybox=True)
 	if n==7:
 		plt.plot(x,func[0],x,func[1],x,func[2],x,func[3],x,func[4],x,func[5],x,func[6])
-		plt.legend( ('f1','f2','f3','f4','f5','f6'),loc='upper left',shadow=False,fancybox=True)
 	if n==8:
 		plt.plot(x,func[0],x,func[1],x,func[2],x,func[3],x,func[4],x,func[5],x,func[6],'--',x,func[7],'--')
-		#unabsorbed,smoothed,residual,HISA_narrow,HISA_broad,HISA_merged
-		plt.legend( ('unabsorbed','smoothed','residual','narrow','broad','merged'),loc='upper right',shadow=False,fancybox=True)
 	if n>8:
-		print "Max number of functions is 8, %i found!"%n
+		print "plotFunc: Max number of functions allowed is 8, %i found!"%n
 		exit(0)
-	#plt.axis([0,1.1,3.0,5.5])
+	if lbl!='no label':
+		if position==None: position='upper left'
+		plt.legend( (lbl),loc='%s'%position,shadow=False,fancybox=True)#color='black',lw=1
 	plt.xlabel('$v_{LSR}(km/s)$')
 	plt.ylabel('$T_b(K)$')
 	plt.title('Velocity profile')
@@ -1760,6 +1782,78 @@ def setNaN2Zero(array):
 	array[isnan(array)] = 0.
 	return array
 
+def getPath2(surveyLogger, key=list, mode="DESY"):
+
+	survey = list[0]
+	spec = list[1]
+	flag = list[2]
+
+	if mode == "DESY":
+		disk1 = "/afs/ifh.de/group/that"
+		disk2 = "/lustre/fs4/group/that/sf/Surveys"
+
+		data1 = disk1+"/data/Radio/skymaps"
+		result1 = disk1+"/data/HISA"
+
+		workdir = disk1+"/work-sf/survey"
+
+	elif mode == "HOME":
+		disk1 = "/Volumes/My Book/DESY"
+		disk2 = disk1+"/analysis/survey/results"
+
+		data1 = disk1+"/data/Radio"
+		result1 = data1+"/hisa"
+
+		workdir = disk1+"/analysis/survey"
+
+	elif mode == "BATCH":
+		disk1 = "."#"$TMPDIR"
+		disk2 = disk1+"/results"
+
+		data1 = disk1+"/data"
+		result1 = disk1+"/results"
+
+		workdir = disk1
+
+	path = False
+	# Rot.Curve
+	if key == 'rotcurve_mpohl':
+		path = True
+		return workdir+'/rotcurve/'
+
+	# Mosaic list
+	if key == 'list_mosaic':
+		path = True
+		return workdir+'/lstmosaic/'
+	
+	# TODO
+	#
+	#survey = survey_name
+	#sur = survey_name.lower()
+	#
+	#if key == 'lustre_'+sur:
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/'
+	#if key == 'lustre_'+sur+'_hi':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/HI/'
+	#if key == 'lustre_'+sur+'_hi_column_density':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/HI/col_den/'
+	#if key == 'lustre_'+sur+'_hisa':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/HISA/'
+	#if key == 'lustre_'+sur+'_hisa_column_density':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/HISA/col_den/'
+	#if key == 'lustre_'+sur+'_co':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/CO/'
+	#if key == 'lustre_'+sur+'_co_column_density':
+	#	path = True
+	#	return '/lustre/fs4/group/that/sf/Surveys/'+survey+'/CO/col_den/'
+
+
 def getPath(surveyLogger, key="cgps_hi"):
 
 	mode = "DESY"
@@ -1877,12 +1971,19 @@ def getPath(surveyLogger, key="cgps_hi"):
 	if key=="lab_hi":
 		path = True
 		return data1+'/hi/LAB/'
+	
 	if key=="lustre_lab":
 		path = True
 		return disk2+'/LAB/'
+	if key=="lustre_lab_hi":
+		path = True
+		return disk2+'/LAB/HI/'
+	if key=="lustre_lab_hi_split":
+		path = True
+		return disk2+'/LAB/HI/split/'
 	if key=="lustre_lab_hi_column_density":
 		path = True
-		return disk2+'/LAB/col_den/'
+		return disk2+'/LAB/HI/col_den/'
 
 	# CGPS
 	if key=="cgps_hi":
@@ -1910,6 +2011,15 @@ def getPath(surveyLogger, key="cgps_hi"):
 	if key=="lustre_cgps_hi_column_density":
 		path = True
 		return disk2+'/CGPS/HI/col_den/'
+	if key=="lustre_cgps_hi_unabsorbed":
+		path = True
+		return disk2+'/CGPS/HI_unabsorbed/'
+	if key=="lustre_cgps_hi_unabsorbed_split":
+		path = True
+		return disk2+'/CGPS/HI_unabsorbed/split/'
+	if key=="lustre_cgps_hi_unabsorbed_column_density":
+		path = True
+		return disk2+'/CGPS/HI_unabsorbed/col_den/'
 	if key=="lustre_cgps_hisa":
 		path = True
 		return disk2+'/CGPS/HISA/'
@@ -1929,6 +2039,13 @@ def getPath(surveyLogger, key="cgps_hi"):
 		path = True
 		return disk2+'/CGPS/CO/col_den/'
 
+	if key=="lustre_cgps_hisa_spectral":
+		path = True
+		return disk2+'/CGPS/HISA/spectral/'
+	if key=="lustre_cgps_hisa_spatial":
+		path = True
+		return disk2+'/CGPS/HISA/spatial/'
+	
 	# SGPS
 	if key=="sgps_hi":
 		path = True
@@ -1952,6 +2069,15 @@ def getPath(surveyLogger, key="cgps_hi"):
 	if key=="lustre_sgps_hi_column_density":
 		path = True
 		return disk2+'/SGPS/HI/col_den/'
+	if key=="lustre_sgps_hi_unabsorbed":
+		path = True
+		return disk2+'/SGPS/HI_unabsorbed/'
+	if key=="lustre_sgps_hi_unabsorbed_split":
+		path = True
+		return disk2+'/SGPS/HI_unabsorbed/split/'
+	if key=="lustre_sgps_hi_unabsorbed_column_density":
+		path = True
+		return disk2+'/SGPS/HI_unabsorbed/col_den/'
 	if key=="lustre_sgps_hisa":
 		path = True
 		return disk2+'/SGPS/HISA/'
@@ -1971,9 +2097,26 @@ def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc):
 	# Select the file according to Survey and Mosaic
 	path = ''
 	flag = ''
-	sur = (survey).lower()
+	sur = survey.lower()
+	spec = species.lower()
 	nmsc = int(nmsc)
 	totmsc = int(totmsc)
+
+	#if datatype == 'original':
+	#	path = getPath(surveyLogger, key=sur+'_'+spec)
+	#elif datatype == 'clean':
+	#	path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec)
+	#elif datatype == '2D_col_density':
+	#	path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec+'_column_density')
+	#elif datatype == '3D_col_density':
+	#	path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec+'_column_density')
+	#elif datatype == '3D_integrated_line':
+	#	path = getPath(surveyLogger, key='lustre_'+sur+'_co_column_density')
+	#elif datatype == 'processed':
+	#	path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec)
+	#elif datatype == 'split':
+	#	path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec+'_split')
+
 
 	# GALPROP
 	if survey == 'Galprop':
@@ -1986,7 +2129,7 @@ def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc):
 				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
 				flag = species+'_column_density'
 			else:
-				typeErrorMsg(surveyLogger,type)
+				datatypeErrorMsg(surveyLogger,datatype,surveyEntry=survey)
 		elif species == 'WCO':
 			if datatype == 'original':
 				path = getPath(surveyLogger, key=sur+'_co')
@@ -1999,7 +2142,7 @@ def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc):
 				path = getPath(surveyLogger, key='lustre_'+sur+'_co_column_density')
 				flag = 'H2_column_density'
 			else:
-				typeErrorMsg(surveyLogger,type)
+				datatypeErrorMsg(surveyLogger,datatype,surveyEntry=survey)
 		else:
 			surveyLogger.critical("Only HI and WCO species available for "+survey+" survey.")
 	
@@ -2016,8 +2159,12 @@ def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc):
 			elif datatype == '2D_col_density':
 				path = getPath(surveyLogger, key='lustre_lab_hi_column_density')
 				flag = species+'_column_density'
+			elif datatype == 'split':
+				if nmsc==0: nmsc=1
+				path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec+'_split')
+				flag = '%s_line_part_%i-%i'%(species,nmsc,totmsc)
 			else:
-				typeErrorMsg(surveyLogger,type)
+				datatypeErrorMsg(surveyLogger,datatype,surveyEntry=survey)
 		else:
 				surveyLogger.critical("Only HI species available for "+survey+" survey.")
 	# DAME
@@ -2034,35 +2181,36 @@ def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc):
 				path = getPath(surveyLogger, key='lustre_dame_co_column_density')
 				flag = 'H2_column_density'
 			else:
-				typeErrorMsg(surveyLogger,type)
+				datatypeErrorMsg(surveyLogger,datatype,surveyEntry=survey)
 		else:
 			surveyLogger.critical("Only WCO species available for "+survey+" survey.")
 	
 	else:
 		if datatype == 'original':
-			if species == 'HI':
-				path = getPath(surveyLogger, key=sur+'_hi')
-			elif species == 'CO':
-				path = getPath(surveyLogger, key=sur+'_co')
+			if not (species == 'HI' or species == 'CO'):
+				surveyLogger.warning("Only HI and CO have datatype = original.")
+				sys.exit(0)
+			path = getPath(surveyLogger, key=sur+'_'+spec)
 			flag = species+'_line_image'
 
 		elif datatype == 'clean':
-			if species == 'HI':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hi')
-			elif species == 'CO':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_co')
+			if not (species == 'HI' or species == 'HI_unabsorbed' or species == 'HISA' or species == 'CO'):
+				surveyLogger.warning("Only HI and CO have datatype = clean and")
+				surveyLogger.warning("only HI_unabsorbed and HISA can load it.")
+				sys.exit(0)
+			if species == 'HI_unabsorbed' or species == 'HISA':
+				species = 'HI'
+				spec = species.lower()
+			path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec)
 			flag = species+'_line_image_clean'
 
 		elif datatype == '2D_col_density':
-			if species == 'HI':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
+			if species == 'HI' or species == 'HISA':
+				path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec+'_column_density')
 				flag = species+'_column_density'
 			elif species == 'CO':
 				path = getPath(surveyLogger, key='lustre_'+sur+'_co_column_density')
 				flag = 'H2_column_density'
-			elif species == 'HISA':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hisa_column_density')
-				flag = species+'_column_density'
 			elif species == 'HI+HISA':
 				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
 				flag = species+'_column_density'
@@ -2074,53 +2222,34 @@ def getFile(surveyLogger,survey,mosaic,species,type,datatype,nmsc,totmsc):
 				flag = 'HI+HISA+H2_column_density'
 
 		elif datatype == '3D_col_density':
-			if species == 'HI':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_column_density')
-				flag = species+'_unabsorbed_column_density_rings'
-			if species == 'HISA':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hisa_column_density')
-				flag = species+'_column_density_rings'
+			if not (species == 'HISA' or species == 'HI_unabsorbed'):
+				surveyLogger.warning("Only HISA and HI_unabsorbed have datatype = 3D_col_density.")
+				sys.exit(0)
+			path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec+'_column_density')
+			flag = species+'_column_density_rings'
 
 		elif datatype == '3D_integrated_line':
-			if species == 'CO':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_co_column_density')
-				flag = 'WCO_line_rings'
+			if not species == 'CO':
+				surveyLogger.warning("Only CO has datatype = 3D_integrated_line.")
+				sys.exit(0)
+			path = getPath(surveyLogger, key='lustre_'+sur+'_co_column_density')
+			flag = 'WCO_line_rings'
 
 		elif datatype == 'processed':
-			if species == 'HI':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hi')
-				flag = species+'_unabsorbed_line'
-			elif species == 'HISA':				
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hisa')
-				flag = species+'_line'
-			elif species == 'CO':
-				surveyLogger.warning("For CO only datatype = original/clean.")
-				sys.exit(0)		
-				#path = getPath(surveyLogger, key='lustre_'+sur+'_co')
-				#flag = species+'_line'
+			if not (species == 'HISA' or species == 'HI_unabsorbed'):
+				surveyLogger.warning("Only HISA and HI_unabsorbed have datatype = processed.")
+				sys.exit(0)
+			path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec)
+			flag = species+'_line'
 
 		elif datatype == 'lowres':
-			if species == 'HI':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hi')
-				flag = species+'_unabsorbed_line_lowres'
-			elif species == 'HISA':				
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hisa')
-				flag = species+'_line_lowres'
-			elif species == 'CO':				
-				path = getPath(surveyLogger, key='lustre_'+sur+'_co')
-				flag = species+'_line_lowres'
+			path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec)
+			flag = species+'_line_lowres'
 
 		elif datatype == 'split':
 			if nmsc==0: nmsc=1
-			if species == 'HI':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hi_split')
-				flag = '%s_unabsorbed_line_part_%i-%i'%(species,nmsc,totmsc)
-			elif species == 'HISA':
-				path = getPath(surveyLogger, key='lustre_'+sur+'_hisa_split')
-				flag = '%s_line_part_%i-%i'%(species,nmsc,totmsc)
-			elif species == 'CO':				
-				path = getPath(surveyLogger, key='lustre_'+sur+'_co_split')
-				flag = '%s_line_part_%i-%i'%(species,nmsc,totmsc)
+			path = getPath(surveyLogger, key='lustre_'+sur+'_'+spec+'_split')
+			flag = '%s_line_part_%i-%i'%(species,nmsc,totmsc)
 
 	return	path,flag,mosaic
 
@@ -2282,6 +2411,23 @@ def typeErrorMsg(surveyLogger,type,typeEntry='HI'):
 		msg = "Allowed type is only '"+glob_N+"'. Your entry is: '"+type+"'."
 	
 	surveyLogger.critical(msg)
+
+def datatypeErrorMsg(surveyLogger,datatype,surveyEntry='CGPS'):
+
+	list = []
+	if surveyEntry == 'CGPS':
+		list = ['original','clean','2D_col_density','3D_col_density','3D_integrated_line','processed','split']
+	elif surveyEntry == 'SGPS' or surveyEntry=='VGPS':
+		list = ['original','clean','2D_col_density','3D_col_density','processed','split']
+	elif surveyEntry == 'LAB':
+		list = ['original','2D_col_density','3D_col_density','processed','split']
+	else:
+		list = ['original']
+
+	surveyLogger.critical("Allowed datatypes are:")
+	for i,item in enumerate(datatype_list):
+		surveyLogger.critical("%i. %s"%(i+1,item))
+	surveyLogger.critical("Your entry is: %s."%datatype)
 
 def checkToGetData(surveyLogger,f1,f2,f3=None):
 	

@@ -11,19 +11,20 @@ class combineMosaics(object):
 	def __init__(self,surveyConf,mosaic,species,type,dim):
 		"""
 		Allow to combine mosaics of column density in 2D or 3D map.
-		species = HI, WCO
+		species = HI, HI_unabsorbed, HISA, WCO
 		"""
 		self.survey = surveyConf['survey']
 		self.mosaic = mosaic#mosaicConf['mosaic']
 		self.species = species
 		self.type = type
-		sur = (self.survey).lower()
-
-		flag1, flag2 = '',''
+		sur = self.survey.lower()
 		
-		if self.species == 'HI':
-			flag1 = 'HI_unabsorbed_column_density'
-		if self.species == 'CO':
+		flag1, flag2 = '',''
+		HI_condition = (self.species == 'HI' or self.species == 'HI_unabsorbed' or self.species == 'HISA')
+		
+		if HI_condition:
+			flag1 = self.species+'_column_density'
+		elif self.species == 'CO':
 			flag1 = 'WCO_intensity_line'
 		
 		if dim == '2D':
@@ -41,27 +42,29 @@ class combineMosaics(object):
 		path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower()+'_column_density')
 		list = []
 		if self.mosaic == 'skymap':
-			if self.species == 'HI':
-				list1 = ['MV1','MV2','MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
-				list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2','MH1','MH2']
-				list3 = ['MIJ1','MIJ2','MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
-				tlist = list1+list2+list3
-
-			if self.species == 'CO':
-				# The 20 CO-mosaics
-				list1 = ['MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
-				list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2']
-				tlist = list1+list2
-			
-			# this configuration (for m --> for f) sort lists in the right way
-			for m in tlist:
-				for f in os.listdir(path):
-					if f.startswith('CGPS_%s_%s'%(m,flag1)):
-						list.append(f)
+			if self.survey == 'CGPS':
+				if HI_condition:
+					list1 = ['MV1','MV2','MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
+					list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2','MH1','MH2']
+					list3 = ['MIJ1','MIJ2','MK1','MK2','ML1','ML2','MM1','MM2','MN1','MN2','MO1','MO2']
+					tlist = list1+list2+list3
+	
+				elif self.species == 'CO':
+					# The 20 CO-mosaics
+					list1 = ['MW1','MW2','MX1','MX2','MY1','MY2','MA1','MA2','MB1','MB2']
+					list2 = ['MC1','MC2','MD1','MD2','ME1','ME2','MF1','MF2','MG1','MG2']
+					tlist = list1+list2
+					
+				# this configuration (for m --> for f) sort lists in the right way
+				for m in tlist:
+					for f in os.listdir(path):
+						if f.startswith('CGPS_%s_%s'%(m,flag1)):
+							list.append(f)
 		else:
-			if self.species == 'HI':
-				list = [f for f in os.listdir(path) if f.startswith('CGPS_%s_%s_part'%(self.mosaic,flag1))]
-				list = sort(list)
+			if self.survey == 'CGPS':
+				if HI_condition:
+					list = [f for f in os.listdir(path) if f.startswith('CGPS_%s_%s_part'%(self.mosaic,flag1))]
+					list = sort(list)
 
 		# Total number of mosaics
 		n_msc = len(list)
@@ -267,16 +270,21 @@ class combineMosaics(object):
 		# Output file
 		self.logger.info("Writing data to a fits file in...")
 		skymap_name = ''
-		path = ''
+		path,key = '',''
 		if self.mosaic == 'skymap':
 			path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower())
 			skymap_name = path+'%s_G%.2f%s%.2f.fits'%(self.survey,crval1,latsign,crval2)
 		else:
 			path = getPath(self.logger, key='lustre_'+sur+'_'+self.species.lower()+'_column_density')
-			if self.species == 'HI':
-				flag = 'HI_unabsorbed_column_density'
-			if self.species == 'CO':
-				flag = 'WCO_intensity_line'
+			if HI_condition:
+				key = self.species
+				flag = key+'_column_density'
+			elif self.species == 'CO':
+				key = 'WCO'
+				flag = key+'_intensity_line'
+			dir = path+self.survey+'_'+self.mosaic+'_'+key
+			os.system('mkdir %s'%dir)
+			os.system('mv %s* %s'%(path+self.survey+'_'+self.mosaic+'_'+flag+'_part_',dir))
 			skymap_name = path+self.survey+'_'+self.mosaic+'_'+flag+'_rings.fits'
 
 		rmin,rmax,annuli = getAnnuli(glob_annuli)

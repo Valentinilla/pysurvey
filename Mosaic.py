@@ -14,8 +14,6 @@ except ImportError:
 
 class Mosaic(object):
 	
-	#def __init__(self,surveyConf,mosaicConf,type,species='',load=False):
-	#@profile
 	def __init__(self,surveyConf,mosaicConf,type,species='',datatype='original',nmsc=1,totmsc=1):
 		"""
 		Read the fits file: HI, HISA, CO

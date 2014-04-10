@@ -19,33 +19,30 @@ class testModule(object):
 		self.datatype = mosaic.datatype
 
 		self.logger = initLogger(self.survey+'_'+self.mosaic+'_'+self.species+'_TestModule')
-		file,path,flag,units = '','','',''
-		sur = (self.survey).lower()
-		
-		if self.species == 'HI':
-			path = getPath(self.logger,'lustre_'+sur+'_hi_column_density')
+		file,flag,units = '','',''
+		sur = self.survey.lower()
+
+		path = getPath(self.logger,'lustre_'+sur+'_'+self.species.lower()+'_column_density')		
+		if not self.species == 'CO':
 			if mosaic.totmsc == 1:
-				flag = 'HI_unabsorbed_column_density'
+				flag = self.species+'_column_density'
 			else:
-				flag = 'HI_unabsorbed_column_density_part_%i-%i'%(int(mosaic.nmsc),int(mosaic.totmsc))
+				flag = self.species+'_column_density_part_%i-%i'%(int(mosaic.nmsc),int(mosaic.totmsc))
 			units = '10e+20 H atoms cm-2'
-		elif self.species == 'HISA':
-			path = getPath(self.logger,'lustre_'+sur+'_hisa_column_density')
-			flag = 'HISA_column_density'
-			units = '10e+20 H atoms cm-2'
-		elif self.species == 'CO':
-			path = getPath(self.logger,'lustre_'+sur+'_co_column_density')
+		else:
 			flag = 'WCO_intensity_line'
 			units = 'K km s-1'
 		
 		file = path+self.survey+'_'+self.mosaic+'_'+flag+'_rings.fits'
-		checkForFiles(self.logger,[file],existence=True)
-		#print mosaic.filename		
-
+		checkForFiles(self.logger,[file],existence=True)		
+		
 		self.logger.info("Open file and get data...")
-				
+		
 		# Get HI emission data
-		Tb = mosaic.observation[0,:,:,:]
+		if self.survey == 'LAB':
+			Tb = mosaic.observation[:,:,:]
+		else:
+			Tb = mosaic.observation[0,:,:,:]
 		
 		lon = mosaic.xarray
 		lat = mosaic.yarray
